@@ -1,0 +1,35 @@
+# .gitignore
+
+# Ignore virtual environment
+
+.venv/
+
+# Ignore Python cache
+
+**pycache**/ \*.pyc \*.pyo \*.pyd
+
+# Ignore build artifacts
+
+dist/ build/ \*.egg-info/ .eggs/ .installed.cfg \*.egg
+
+# Ignore logs and databases
+
+\*.log \*.db
+
+# Ignore test and coverage directories
+
+.pytest_cache/ .coverage
+
+# Ignore environment files
+
+.env
+
+# Ignore IDE files (uncomment if using specific IDEs)
+
+# .idea/
+
+# .vscode/
+
+# Ignore other temporary files
+
+\*.swp \*.swo

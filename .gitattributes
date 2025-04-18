@@ -1,0 +1,9 @@
+# .gitattributes
+
+# Set end-of-line to LF for all files
+
+- text=auto
+
+# Specify language for .py files
+
+\*.py linguist-language=Python
