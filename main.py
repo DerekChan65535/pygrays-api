@@ -1,26 +1,17 @@
 from fastapi import FastAPI
-from services.aging_report import router as aging_report_router
-from containers import AppContainer
-from dependency_injector.wiring import wire
+from dependency_injector.wiring import wire, inject
 
-# Create and configure the dependency injection container
-container = AppContainer()
+from containers import RootContainer
+from routes.aging_report_router import aging_reports_router
 
-# Wire the container to modules that use Provide markers
-wire(
-    modules=[
-        "services.aging_report",
-    ],
-    container=container,
-)
 
-app = FastAPI(
-    title="PyGrays API",
-    description="API for handling aging reports",
-    version="0.1.0",
-)
+def create_app():
+    container = RootContainer()
 
-app.include_router(aging_report_router)
+    a = FastAPI()
+    a.container = container
+    a.include_router(aging_reports_router)
+    return a
 
-# Provide the container instance to the FastAPI app
-app.container = container
+app = create_app()
+

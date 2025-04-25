@@ -1,27 +1,40 @@
-from dependency_injector import containers, providers
-from services.aging_report import AgingReportService
-from utils.containers import LoggingContainer
+import logging
 
-class ServicesContainer(containers.DeclarativeContainer):
-    """Container for all services."""
+from dependency_injector import containers, providers
+from services.aging_report_service import AgingReportService
+from services.multi_logging import LoggingService, LogConfig
+
+
+class LoggingContainer(containers.DeclarativeContainer):
+    """Container for logging-related dependencies."""
     
-    # Dependencies from other containers
-    logging = providers.DependenciesContainer()
+    config = providers.Factory(
+        LogConfig,
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        log_file=None,
+        log_to_console=True
+    )
     
-    # Service providers
-    aging_report_service = providers.Factory(
-        AgingReportService,
-        logger=logging.aging_report_logger
+    service = providers.Singleton(
+        LoggingService,
+        default_config=config
+    )
+    
+    logger = providers.Factory(
+        service.provided.get_logger,
+        name="app"
     )
 
-class AppContainer(containers.DeclarativeContainer):
-    """Application container."""
+
+class RootContainer(containers.DeclarativeContainer):
+    """Root container for application dependencies."""
     
-    # Include the logging container
+    # Configure logging
     logging = providers.Container(LoggingContainer)
     
-    # Services container with injected logging dependencies
-    services = providers.Container(
-        ServicesContainer,
-        logging=logging
+    # Services
+    aging_report_service = providers.Singleton(
+        AgingReportService,
+        logger=logging.logger
     )
