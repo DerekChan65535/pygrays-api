@@ -3,6 +3,7 @@ from typing import Annotated
 from dependency_injector.wiring import inject, Provide
 from fastapi import APIRouter, UploadFile, File
 from fastapi.params import Depends
+import fastapi.responses
 from starlette.responses import HTMLResponse
 
 from containers import RootContainer
@@ -32,7 +33,19 @@ async def create_files(files: Annotated[list[bytes], File()]):
 async def create_upload_files(
         files: Annotated[list[UploadFile], File(description="Multiple files as UploadFile")],
 ):
-    return {"filenames": [file.filename for file in files]}
+    if not files:
+        return {"error": "No files uploaded"}
+    
+    first_file = files[0]
+    file_content = await first_file.read()
+    
+    return fastapi.responses.Response(
+        content=file_content,
+        media_type=first_file.content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename={first_file.filename}"
+        }
+    )
 
 
 @aging_reports_router.get("/")
