@@ -49,7 +49,7 @@ async def create_upload_files(
 
 
 @aging_reports_router.get("/")
-async def main():
+async def content_html():
     content = """
         <body>
         <form action="/aging-reports/files/" enctype="multipart/form-data" method="post">
