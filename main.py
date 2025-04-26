@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from containers import RootContainer
-from routes.routes import api_router
+from routes.api_routes import api_router
 
 
 def create_app():

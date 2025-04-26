@@ -1,27 +1,31 @@
+import logging
+
+from models.file_model import FileModel
 from services.multi_logging import LoggingService
 import itertools
 import os, re, csv, json
 from openpyxl import Workbook
 import decimal
 
-
-class FileModel:
-    def __init__(self, name: str, content: bytes):
-        self.name = name
-        self.content = content
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class InventoryService:
 
-    def __init__(self, logging_service: LoggingService):
-        self.logger = logging_service.get_logger(__name__)
+    def __init__(self):
+        pass
+
+
 
     def process_inventory_request(self, files: list[FileModel]):
-        self.logger.info(f"Processing inventory request for {len(files)} files")
+        logger.info("Processing inventory request")
 
-        dropship_sales_file = [x for x in files if re.match(r'^DropshipSales\d{8}\.txt$', x.name)]
+        #Create a empty excel workbook
+        workbook = Workbook()
 
 
+        dropship_sales_files = sorted([x for x in files if re.match(r'^DropshipSales\d{8}\.txt$', x.name)], key=lambda x: x.name)
 
 
 
