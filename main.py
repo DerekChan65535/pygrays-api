@@ -1,8 +1,7 @@
 from fastapi import FastAPI
-from dependency_injector.wiring import wire, inject
 
 from containers import RootContainer
-from routes.aging_report_router import aging_reports_router
+from routes.routes import api_router
 
 
 def create_app():
@@ -10,7 +9,7 @@ def create_app():
 
     a = FastAPI()
     a.container = container
-    a.include_router(aging_reports_router)
+    a.include_router(api_router)
     return a
 
 app = create_app()
