@@ -1,11 +1,10 @@
 import logging
+import re
+from io import BytesIO
+
+from openpyxl import Workbook
 
 from models.file_model import FileModel
-from services.multi_logging import LoggingService
-import itertools
-import os, re, csv, json
-from openpyxl import Workbook
-import decimal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,7 +15,21 @@ class InventoryService:
     def __init__(self):
         pass
 
+    def _decode_file_content(self, content: bytes) -> str:
+        return content.decode('utf-8')
 
+    def _parse_tsv_content(self, content: str) -> list[dict]:
+        rows = []
+        lines = content.splitlines()
+        if not lines:
+            return rows
+
+        headers = lines[0].split('\t')
+        for line in lines[1:]:
+            values = line.split('\t')
+            row = dict(zip(headers, values))
+            rows.append(row)
+        return rows
 
     def process_inventory_request(self, files: list[FileModel]):
         logger.info("Processing inventory request")
@@ -24,12 +37,23 @@ class InventoryService:
         #Create a empty excel workbook
         workbook = Workbook()
 
+        #Create a new sheet called "Dropship Sale"
+        dropship_sales_sheet = workbook.active
 
         dropship_sales_files = sorted([x for x in files if re.match(r'^DropshipSales\d{8}\.txt$', x.name)], key=lambda x: x.name)
 
+        required_col = ["Customer", "AX_ProductCode", "GST", "Units", "Price", "Amount", "SaleNo", "VendorNo", "ItemNo",
+                   "Description", "Serial_No", "Vendor_Ref_No", "DropShipper", "Consignment", "DealNo", "Column1", "BP",
+                   "SaleType", "FreightCodeDescription"]
+        parsed_files = []
+        for file in dropship_sales_files:
+            content = self._decode_file_content(file.content)
+            rows = self._parse_tsv_content(content)
+            parsed_files.append({"name": file.name, "data": rows})
 
+        # Save workbook to bytes
+        workbook_bytes = BytesIO()
+        workbook.save(workbook_bytes)
+        workbook_binary = workbook_bytes.getvalue()
 
-
-
-
-        return [f"File {file.name} has {len(file.content)} bytes" for file in files]
+        return workbook_binary
