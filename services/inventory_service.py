@@ -6,6 +6,8 @@ from openpyxl import Workbook
 
 from models.file_model import FileModel
 
+import decimal
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,16 @@ class InventoryService:
         # extract data from parsed files by `required_col`
         data = []
         for row in parsed_files:
-            data.append([row.get(col, "") for col in required_col])
+            row_data = []
+            for col in required_col:
+                value = row.get(col, "")
+                if col in ["Amount", "Price"] and value:
+                    try:
+                        value = decimal.Decimal(value)
+                    except decimal.InvalidOperation:
+                        value = ""
+                row_data.append(value)
+            data.append(row_data)
 
         # Write data to excel sheet
         dropship_sales_sheet.append(required_col)
