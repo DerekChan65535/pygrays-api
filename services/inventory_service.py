@@ -31,14 +31,17 @@ class InventoryService:
             rows.append(row)
         return rows
 
-    def process_inventory_request(self, files: list[FileModel]):
+    def process_inventory_request(self, files: list[FileModel]) -> bytes:
         logger.info("Processing inventory request")
 
         #Create a empty excel workbook
-        workbook = Workbook()
+        new_workbook = Workbook()
 
         #Create a new sheet called "Dropship Sale"
-        dropship_sales_sheet = workbook.active
+        dropship_sales_sheet = new_workbook.create_sheet("Dropship Sales")
+
+        #Remove the default sheet
+        new_workbook.remove(new_workbook.active)
 
         dropship_sales_files = sorted([x for x in files if re.match(r'^DropshipSales\d{8}\.txt$', x.name)], key=lambda x: x.name)
 
@@ -49,11 +52,22 @@ class InventoryService:
         for file in dropship_sales_files:
             content = self._decode_file_content(file.content)
             rows = self._parse_tsv_content(content)
-            parsed_files.append({"name": file.name, "data": rows})
+            parsed_files.extend(rows)
+
+        # extract data from parsed files by `required_col`
+        data = []
+        for row in parsed_files:
+            data.append([row.get(col, "") for col in required_col])
+
+        # Write data to excel sheet
+        dropship_sales_sheet.append(required_col)
+        for row in data:
+            dropship_sales_sheet.append(row)
+
 
         # Save workbook to bytes
         workbook_bytes = BytesIO()
-        workbook.save(workbook_bytes)
+        new_workbook.save(workbook_bytes)
         workbook_binary = workbook_bytes.getvalue()
 
         return workbook_binary

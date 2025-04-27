@@ -42,14 +42,14 @@ async def create_upload_files(
 
     file_name_content = [FileModel(name=x.filename, content=await x.read()) for x in files]
 
-    service.process_inventory_request(file_name_content)
+    file_content=    service.process_inventory_request(file_name_content)
 
-    return len(file_name_content)
 
-    # return fastapi.responses.Response(
-    #     content=file_content,
-    #     media_type=first_file.content_type,
-    #     headers={
-    #         "Content-Disposition": f"attachment; filename={first_file.filename}"
-    #     }
-    # )
+
+    return fastapi.responses.Response(
+        content=file_content,
+        media_type=first_file.content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename=new_book.xlsx"
+        }
+    )
