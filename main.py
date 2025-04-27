@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from containers import RootContainer
 from routes.api_routes import api_router
@@ -8,6 +9,16 @@ def create_app():
     container = RootContainer()
 
     a = FastAPI()
+    
+    # Configure CORS middleware
+    a.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allows all origins
+        allow_credentials=True,
+        allow_methods=["*"],  # Allows all methods
+        allow_headers=["*"],  # Allows all headers
+    )
+    
     a.container = container
     a.include_router(api_router)
     return a
