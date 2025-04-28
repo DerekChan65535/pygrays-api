@@ -84,11 +84,7 @@ class InventoryService:
 
         response = ResponseBase()
 
-        # validate txt file names
-        if not self._validate_file_names_date([x.name for x in txt_files]):
-            response.errors.append("Invalid file names")
-            response.is_success = False
-            return response
+
 
         #Create a empty excel workbook
         new_workbook = Workbook()
@@ -100,6 +96,12 @@ class InventoryService:
         new_workbook.remove(new_workbook.active)
 
         dropship_sales_files = sorted([x for x in txt_files if re.match(r'^DropshipSales\d{8}\.txt$', x.name)], key=lambda x: x.name)
+
+        # validate txt file names
+        if not self._validate_file_names_date([x.name for x in dropship_sales_files]):
+            response.errors.append("Invalid file names")
+            response.is_success = False
+            return response
 
         required_col = ["Customer", "AX_ProductCode", "GST", "Units", "Price", "Amount", "SaleNo", "VendorNo", "ItemNo",
                    "Description", "Serial_No", "Vendor_Ref_No", "DropShipper", "Consignment", "DealNo", "Column1", "BP",
