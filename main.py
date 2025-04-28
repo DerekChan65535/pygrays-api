@@ -17,6 +17,7 @@ def create_app():
         allow_credentials=True,
         allow_methods=["*"],  # Allows all methods
         allow_headers=["*"],  # Allows all headers
+        expose_headers=["*"],
     )
     
     a.container = container
