@@ -18,7 +18,44 @@ logger = logging.getLogger(__name__)
 
 
 class InventoryService:
+    # Define required columns with their expected data types
+    dropship_sales_columns_schema = {
+        "Customer": str,
+        "AX_ProductCode": str,
+        "GST": str,
+        "Units": str,
+        "Price": decimal.Decimal,
+        "Amount": decimal.Decimal,
+        "SaleNo": str,
+        "VendorNo": str,
+        "ItemNo": str,
+        "Description": str,
+        "Serial_No": str,
+        "Vendor_Ref_No": str,
+        "DropShipper": str,
+        "Consignment": str,
+        "DealNo": str,
+        "Column1": str,
+        "BP": str,
+        "SaleType": str,
+        "FreightCodeDescription": str
+    }
 
+    uom_columns_schema = {
+        "Item": str,
+        "Category": str,
+        "Description": str,
+        "UOM": decimal.Decimal,
+        "Quantity Subinventory": str,
+        "Value Subinventory": str,
+        "Quantity Receiving": str,
+        "Value Receiving": str,
+        "Quantity Intransit": str,
+        "Value Intransit": str,
+        "Total Quantity": str,
+        "Extended Value": str
+    }
+    
     def __init__(self):
         pass
 
@@ -176,7 +213,7 @@ class InventoryService:
         logger.info(f"Validated {len(item_uom_map)} item number to UOM mappings")
         return item_uom_map
         
-    def _process_dropship_sales(self, txt_files: list[FileModel], response: ResponseBase) -> tuple[list, list[str]] | None:
+    def _process_dropship_sales(self, txt_files: list[FileModel], response: ResponseBase) -> list[dict] | None:
         """
         Process DropshipSales files to extract and validate data.
         
@@ -185,7 +222,7 @@ class InventoryService:
             response: Response object to populate in case of errors
             
         Returns:
-            A tuple containing the processed data and column names, or None if validation fails
+            A list of dictionaries with validated data, or None if validation fails
         """
         logger.info("Processing DropshipSales files")
         
@@ -199,63 +236,74 @@ class InventoryService:
             response.errors.append("Invalid file names")
             response.is_success = False
             return None
-            
-        # Define required columns
-        required_col = ["Customer", "AX_ProductCode", "GST", "Units", "Price", "Amount", "SaleNo", "VendorNo", "ItemNo",
-                       "Description", "Serial_No", "Vendor_Ref_No", "DropShipper", "Consignment", "DealNo", "Column1", "BP",
-                       "SaleType", "FreightCodeDescription"]
-                       
-        # Parse files and combine the rows
-        parsed_files = []
+        
+        # Parse files and combine data
+        items = []
         for file in dropship_sales_files:
             rows = self._load_csv_from_bytes(file.content)
-            parsed_files.extend(rows)
-            
-        logger.info(f"Loaded {len(parsed_files)} rows from {len(dropship_sales_files)} DropshipSales files")
-        
-        # Check if all required columns are present in the parsed data
-        if parsed_files:
-            # Get the first row to check column presence
-            first_row = parsed_files[0] if parsed_files else []
-            
-            # Generate header index map if first row contains headers
-            # This assumes the first row contains headers matching the required columns
-            header_map = {}
-            if first_row:
-                for i, header in enumerate(first_row):
-                    header_map[header] = i
-                    
-            # Check for missing columns
-            missing_columns = [col for col in required_col if col not in header_map]
-            
+            if not rows:
+                continue
+                
+            # Check if header is present and matches required columns
+            if not rows or len(rows) < 2:  # Need at least header and one data row
+                logger.warning(f"File {file.name} has no data rows")
+                continue
+                
+            headers = rows[0]
+            # Check if all required columns are present
+            missing_columns = [col for col in self.dropship_sales_columns_schema.keys() if col not in headers]
             if missing_columns:
-                error_message = f"Missing required columns in data: {', '.join(missing_columns)}"
+                error_message = f"Missing required columns in {file.name}: {', '.join(missing_columns)}"
                 logger.error(error_message)
                 response.errors.append(error_message)
                 response.is_success = False
                 return None
-        
-        # Extract data from parsed files based on required columns
-        data = []
-        # Skip the header row (first row)
-        for row in parsed_files[1:]:
-            row_data = []
-            for col in required_col:
-                # Get the index for this column from our header map, default to -1 if not found
-                col_index = header_map.get(col, -1)
-                # If we have a valid index and the row has enough elements, get the value
-                value = row[col_index] if col_index >= 0 and col_index < len(row) else ""
                 
-                if col in ["Amount", "Price"] and value:
-                    try:
-                        value = decimal.Decimal(value)
-                    except decimal.InvalidOperation:
-                        value = ""
-                row_data.append(value)
-            data.append(row_data)
+            # Convert rows to dictionaries
+            type_validation_errors = []
             
-        logger.info(f"Processed {len(data)} rows of data")
-        return data, required_col
+            for row_index, row in enumerate(rows[1:], start=2):  # Skip header row, start=2 for 1-indexed row numbers in error messages
+                if len(row) != len(headers):
+                    logger.warning(f"Skipping row with mismatched length in {file.name}")
+                    continue
+                    
+                row_dict = {}
+                row_type_errors = []
+                
+                for i, header in enumerate(headers):
+                    value = row[i] if i < len(row) else ""
+                    
+                    # Apply type conversion for required columns
+                    if header in self.dropship_sales_columns_schema:
+                        expected_type = self.dropship_sales_columns_schema[header]
+                        
+                        if value and expected_type == decimal.Decimal:
+                            try:
+                                value = decimal.Decimal(value)
+                            except decimal.InvalidOperation:
+                                error_msg = f"Row {row_index}, column '{header}': value '{value}' cannot be converted to Decimal"
+                                row_type_errors.append(error_msg)
+                                logger.warning(error_msg)
+                    
+                    row_dict[header] = value
+                
+                if row_type_errors:
+                    type_validation_errors.extend(row_type_errors)
+                else:
+                    items.append(row_dict)
+            
+            # If there were type validation errors, return them
+            if type_validation_errors:
+                error_message = f"Data type validation errors in {file.name}"
+                logger.error(error_message)
+                response.errors.append(error_message)
+                response.errors.extend(type_validation_errors)
+                response.is_success = False
+                return None
+        
+        logger.info(f"Processed {len(items)} rows of data from {len(dropship_sales_files)} files")
+        return items
+
         
     def process_inventory_request(self, txt_files: list[FileModel], csv_file: FileModel) -> ResponseBase:
         logger.info("Processing inventory request")
@@ -275,22 +323,57 @@ class InventoryService:
         # Create a new sheet called "Dropship Sale"
         dropship_sales_sheet = new_workbook.create_sheet("Dropship Sales")
         
+        # Create a new sheet called "mixed" for mixed deals
+        mixed_sheet = new_workbook.create_sheet("mixed")
+        
         # Remove the default sheet
         new_workbook.remove(new_workbook.active)
         
         # Process DropshipSales files
-        dropship_result = self._process_dropship_sales(txt_files, response)
+        data_dicts = self._process_dropship_sales(txt_files, response)
         
         # If processing failed, return the response with errors
-        if dropship_result is None:
+        if data_dicts is None:
             return response
             
-        data, required_col = dropship_result
+        # Get column names in consistent order
+        required_col_names = list(self.dropship_sales_columns_schema.keys())
         
-        # Write data to excel sheet
-        dropship_sales_sheet.append(required_col)
-        for row in data:
-            dropship_sales_sheet.append(row)
+        # Check for mixed deals if needed
+        mixed_deals = [item for item in data_dicts if item.get("DealNo") == "MIXED"]
+        logger.info(f"Found {len(mixed_deals)} rows with MIXED DealNo")
+        
+        # Write header row to dropship_sales sheet
+        dropship_sales_sheet.append(required_col_names)
+        
+        # Write data rows using the required column order
+        for row_dict in data_dicts:
+            row_values = [row_dict.get(col, "") for col in required_col_names]
+            dropship_sales_sheet.append(row_values)
+            
+        # Create mixed sheet header with Per_Unit_Cost column after AX_ProductCode
+        mixed_sheet_headers = []
+        for col in required_col_names:
+            mixed_sheet_headers.append(col)
+            if col == "AX_ProductCode":
+                mixed_sheet_headers.append("Per_Unit_Cost")
+        
+        # Write header to mixed sheet
+        mixed_sheet.append(mixed_sheet_headers)
+        
+        # Write mixed deals data to the mixed sheet with Per_Unit_Cost
+        for row_dict in mixed_deals:
+            row_values = []
+            for col in required_col_names:
+                row_values.append(row_dict.get(col, ""))
+                if col == "AX_ProductCode":
+                    # Add Per_Unit_Cost value from unit_with_cost if available
+                    product_code = row_dict.get("AX_ProductCode", "")
+                    unit_cost = unit_with_cost.get(product_code, "")
+                    row_values.append(unit_cost)
+            mixed_sheet.append(row_values)
+            
+        logger.info(f"Wrote {len(data_dicts)} rows to Dropship Sales sheet and {len(mixed_deals)} rows to mixed sheet")
 
         # Save workbook to bytes
         workbook_bytes = BytesIO()
@@ -298,4 +381,6 @@ class InventoryService:
         workbook_binary = workbook_bytes.getvalue()
         response.data = FileModel(name="dropship_sales.xlsx", content=workbook_binary)
 
+        logger.info("Excel workbook saved with Dropship Sales and mixed sheets")
+        
         return response
