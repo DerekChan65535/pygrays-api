@@ -1,4 +1,5 @@
 from typing import Annotated
+import traceback
 
 import fastapi.responses
 from dependency_injector.wiring import Provide, inject
@@ -50,21 +51,41 @@ async def create_upload_files(
     txt_file_name_content = [FileModel(x.filename, await x.read()) for x in txt_files]
     csv_uom_file = FileModel(csv_files[0].filename, await csv_files[0].read())
 
-    response = service.process_inventory_request(txt_file_name_content, csv_uom_file)
-
+    try:
+        response = service.process_inventory_request(txt_file_name_content, csv_uom_file)
+    except Exception as e:
+        tb_exc = traceback.TracebackException.from_exception(e)
+        content = {
+                "exception": {
+                    "type": tb_exc.exc_type.__name__
+                },
+                "traceback": [
+                    {
+                        "filename": frame.filename,
+                        "lineno": frame.lineno,
+                        "name": frame.name,
+                        "line": frame.line
+                    } for frame in tb_exc.stack
+                ]
+            }
+        return fastapi.responses.Response(
+            status_code=500,
+            content= content
+        )
 
     if response.is_success:
         return fastapi.responses.Response(
             status_code=200,
-            content=response.data
+            content=response.data,
+            headers={
+                "Content-Disposition": f"attachment; filename={response.data.name}"
+            }
         )
     else:
         return fastapi.responses.Response(
             status_code=400,
             content=response.to_json()
         )
-
-
 
     # return fastapi.responses.Response(
     #     content=file_content,
