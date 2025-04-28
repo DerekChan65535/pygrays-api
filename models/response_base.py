@@ -1,15 +1,9 @@
 class ResponseBase:
-    errors : list[str] = []
-    data : any = None
-    is_success : bool | None
-
+    # Move class-level attributes to instance initialization to avoid shared mutable state
     def __init__(self, is_success : bool | None = None, data : any = None, errors=None):
-        if errors is None:
-            errors = []
-        self.is_success = is_success
+        self.errors = [] if errors is None else errors
         self.data = data
-        self.errors = errors
-
+        self.is_success = is_success if is_success is not None else True  # Default to True
 
     def to_json(self):
         return {
