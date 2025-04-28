@@ -1,10 +1,11 @@
 from typing import Annotated
 import traceback
+import json
 
 import fastapi.responses
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, UploadFile, File, Depends
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, JSONResponse
 
 from containers import RootContainer
 from models.file_model import FileModel
@@ -56,41 +57,52 @@ async def create_upload_files(
     except Exception as e:
         tb_exc = traceback.TracebackException.from_exception(e)
         content = {
-                "exception": {
-                    "type": tb_exc.exc_type.__name__
-                },
-                "traceback": [
-                    {
-                        "filename": frame.filename,
-                        "lineno": frame.lineno,
-                        "name": frame.name,
-                        "line": frame.line
-                    } for frame in tb_exc.stack
-                ]
-            }
-        return fastapi.responses.Response(
+            "exception": {
+                "type": tb_exc.exc_type.__name__,
+                "message": str(e)
+            },
+            "traceback": [
+                {
+                    "filename": frame.filename,
+                    "lineno": frame.lineno,
+                    "name": frame.name,
+                    "line": frame.line
+                } for frame in tb_exc.stack
+            ]
+        }
+        # Use JSONResponse for dictionary content
+        return JSONResponse(
             status_code=500,
-            content= content
+            content=content
         )
 
     if response.is_success:
+        # Assuming response.data contains the file bytes
+        # You might want to explicitly set the media_type if it's not plain text
+        # e.g., media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' for xlsx
         return fastapi.responses.Response(
             status_code=200,
-            content=response.data,
+            content=response.data.content,
             headers={
                 "Content-Disposition": f"attachment; filename={response.data.name}"
+                # Make sure response.data has a 'name' attribute if used like this
             }
+            # Consider adding media_type=... here based on the actual file type in response.data
         )
     else:
-        return fastapi.responses.Response(
-            status_code=400,
-            content=response.to_json()
-        )
-
-    # return fastapi.responses.Response(
-    #     content=file_content,
-    #     media_type=first_file.content_type,
-    #     headers={
-    #         "Content-Disposition": f"attachment; filename=new_book.xlsx"
-    #     }
-    # )
+        # If response.to_json() returns a dictionary/list, use JSONResponse
+        # If it returns a JSON string, Response is okay, but set media_type
+        try:
+            # Try to parse the JSON string potentially returned by to_json()
+            json_content = json.loads(response.to_json())
+            return JSONResponse(
+                status_code=400,
+                content=json_content
+            )
+        except (json.JSONDecodeError, TypeError):
+            # If to_json() returns a plain string or something else, use Response
+            return fastapi.responses.Response(
+                status_code=400,
+                content=str(response.to_json()),  # Ensure it's a string
+                media_type="application/json"  # Assuming the string is JSON
+            )
