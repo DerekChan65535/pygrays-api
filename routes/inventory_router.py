@@ -35,21 +35,36 @@ async def create_upload_files(
         csv_files: Annotated[list[UploadFile], File(description="CSV files as UploadFile")],
         service: Annotated[InventoryService, Depends(Provide[RootContainer.inventory_service])]
 ):
-    if not txt_files:
-        return {"error": "No files uploaded"}
+    if not txt_files or len(txt_files) == 0:
+        return fastapi.responses.Response(
+            status_code=400,
+            content="No txt files uploaded"
+        )
 
-    first_file = txt_files[0]
-    file_content = await first_file.read()
+    if not csv_files or len(csv_files) != 1:
+        return fastapi.responses.Response(
+            status_code=400,
+            content="No csv files uploaded"
+        )
 
-    file_name_content = [FileModel(name=x.filename, content=await x.read()) for x in txt_files]
+    txt_file_name_content = [FileModel(x.filename, await x.read()) for x in txt_files]
+    csv_uom_file = FileModel(csv_files[0].filename, await csv_files[0].read())
 
-    file_content = service.process_inventory_request(file_name_content)
+    response = service.process_inventory_request(txt_file_name_content, csv_uom_file)
 
 
-    return {
-        "txt_file_count": len(txt_files),
-        "csv_file_count": len(csv_files),
-    }
+    if response.is_success:
+        return fastapi.responses.Response(
+            status_code=200,
+            content=response.data
+        )
+    else:
+        return fastapi.responses.Response(
+            status_code=400,
+            content=response.to_json()
+        )
+
+
 
     # return fastapi.responses.Response(
     #     content=file_content,
