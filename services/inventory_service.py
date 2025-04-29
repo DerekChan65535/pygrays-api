@@ -119,42 +119,60 @@ class InventoryService:
         raise ValueError(error_msg)
 
     @staticmethod
-    def _validate_file_names_date(file_names: List[str]) -> bool:
-
+    def _extract_and_validate_file_dates(file_names: List[str]) -> Tuple[Optional[int], Optional[int], bool]:
+        """
+        Extract month and year from file names and validate they are consistent.
+        
+        Args:
+            file_names: List of file names to process.
+            
+        Returns:
+            Tuple containing:
+            - Extracted month (or None if invalid)
+            - Extracted year (or None if invalid)
+            - Boolean indicating if validation was successful
+        """
         consensus_month = None
         consensus_year = None
-
+        
+        if not file_names:
+            return None, None, False
+    
         for file_name in file_names:
             # decompose file name
             # E.g., DropshipSales20250228.txt will be decomposed into Category: DropshipSales, Date: 20250228, Extension: txt
-
+    
             pattern = r'^(.+)(\d{8})\.([a-zA-Z]+)$'
             match = re.match(pattern, file_name)
             if not match:
-                return False
-
+                return None, None, False
+    
             category = match.group(1)  # Group 1: Category
             date = match.group(2)  # Group 2: Date
             extension = match.group(3)  # Group 3: Extension
-
+    
             # Get month and year from date
-            month = int(date[:2])
-            year = int(date[2:4])
-
+            month = int(date[4:6])
+            year = int(date[0:4])
+            
+            # Validate month range
+            if month < 1 or month > 12:
+                return None, None, False
+    
             # Ensure that all files have the same month and year
             if consensus_month is None:
                 consensus_month = month
             else:
                 if month != consensus_month:
-                    return False
-
+                    return consensus_month, consensus_year, False
+    
             if consensus_year is None:
                 consensus_year = year
             else:
                 if year != consensus_year:
-                    return False
-
-        return True
+                    return consensus_month, consensus_year, False
+    
+        return consensus_month, consensus_year, True
         
     def _get_mixed_deals(self, data_dicts: List[Dict]) -> List[Dict]:
         """
@@ -569,7 +587,7 @@ class InventoryService:
         logger.info(f"Validated {len(item_uom_map)} item number to UOM mappings")
         return item_uom_map
 
-    def _process_deals_files(self, txt_files: List[FileModel], errors: List[str]) -> Optional[List[Dict]]:
+    def _process_deals_files(self, txt_files: List[FileModel], errors: List[str]) -> Tuple[Optional[List[Dict]], Optional[int], Optional[int]]:
         """
         Process Deals files to extract and validate data.
     
@@ -578,7 +596,10 @@ class InventoryService:
             errors: List to collect error messages.
     
         Returns:
-            List of dictionaries with validated data, or None if validation fails.
+            Tuple containing:
+            - List of dictionaries with validated data, or None if validation fails
+            - Month extracted from file names, or None if validation fails
+            - Year extracted from file names, or None if validation fails
         """
         logger.info("Processing Deals files")
     
@@ -587,24 +608,26 @@ class InventoryService:
         
         if not deals_files:
             errors.append("No Deals files found in the provided files")
-            return None
-    
-        if not self._validate_file_names_date([x.name for x in deals_files]):
-            errors.append("Invalid file names - all files must have the same month and year")
-            return None
+            return None, None, None
+        
+        # Extract and validate the month and year from file names
+        month, year, is_valid = self._extract_and_validate_file_dates([x.name for x in deals_files])
+        if not is_valid:
+            errors.append("Invalid file names - all Deals files must have the same month and year")
+            return None, None, None
     
         all_items = []
         for file in deals_files:
             items = self._load_csv_data(file, self.deals_columns_schema, errors)
             if len(errors) > 0:
                 logger.error(f"Errors processing {file.name}: {errors}")
-                return None
+                return None, None, None
             all_items.extend(items)
     
         logger.info(f"Processed {len(all_items)} rows of data from {len(deals_files)} files")
-        return all_items
+        return all_items, month, year
     
-    def _process_dropship_sales(self, txt_files: List[FileModel], errors: List[str]) -> Optional[List[Dict]]:
+    def _process_dropship_sales_files(self, txt_files: List[FileModel], errors: List[str]) -> Tuple[Optional[List[Dict]], Optional[int], Optional[int]]:
         """
         Process DropshipSales files to extract and validate data.
     
@@ -613,7 +636,10 @@ class InventoryService:
             errors: List to collect error messages.
     
         Returns:
-            List of dictionaries with validated data, or None if validation fails.
+            Tuple containing:
+            - List of dictionaries with validated data, or None if validation fails
+            - Month extracted from file names, or None if validation fails
+            - Year extracted from file names, or None if validation fails
         """
         logger.info("Processing DropshipSales files")
     
@@ -622,23 +648,43 @@ class InventoryService:
         
         if not dropship_sales_files:
             errors.append("No DropshipSales files found in the provided files")
-            return None
-    
-        if not self._validate_file_names_date([x.name for x in dropship_sales_files]):
-            errors.append("Invalid file names - all files must have the same month and year")
-            return None
+            return None, None, None
+        
+        # Extract and validate the month and year from file names
+        month, year, is_valid = self._extract_and_validate_file_dates([x.name for x in dropship_sales_files])
+        if not is_valid:
+            errors.append("Invalid file names - all DropshipSales files must have the same month and year")
+            return None, None, None
     
         all_items = []
         for file in dropship_sales_files:
             items = self._load_csv_data(file, self.dropship_sales_columns_schema, errors)
             if len(errors) > 0:
                 logger.error(f"Errors processing {file.name}: {errors}")
-                return None
+                return None, None, None
             all_items.extend(items)
-
+    
         logger.info(f"Processed {len(all_items)} rows of data from {len(dropship_sales_files)} files")
-        return all_items
+        return all_items, month, year
 
+    def _get_month_name(self, month: int) -> str:
+        """
+        Convert month number to month name.
+        
+        Args:
+            month: Month number (1-12)
+            
+        Returns:
+            Month name (e.g., "January", "February", etc.)
+        """
+        month_names = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+        if 1 <= month <= 12:
+            return month_names[month - 1]
+        return "Unknown"
+    
     def process_inventory_request(self, txt_files: List[FileModel], csv_file: FileModel) -> ResponseBase:
         """
         Process inventory request by handling input files, generating data, and creating an Excel file.
@@ -665,18 +711,33 @@ class InventoryService:
             return response
         
         # Process DropshipSales files
-        data_dicts = self._process_dropship_sales(txt_files, errors)
+        data_dicts, dropship_month, dropship_year = self._process_dropship_sales_files(txt_files, errors)
         if self._handle_errors(errors, response):
             return response
             
         # Process Deals files
-        deals_data = self._process_deals_files(txt_files, errors)
+        deals_data, deals_month, deals_year = self._process_deals_files(txt_files, errors)
         if self._handle_errors(errors, response):
             return response
-            
-        # Process Deals files
-        deals_data = self._process_deals_files(txt_files, errors)
-        if self._handle_errors(errors, response):
+        
+        # Validate both types of files have the same month and year
+        if dropship_month is not None and deals_month is not None:
+            if dropship_month != deals_month or dropship_year != deals_year:
+                error_msg = f"Files from different periods: DropshipSales files are from {self._get_month_name(dropship_month)} 20{dropship_year}, while Deals files are from {self._get_month_name(deals_month)} 20{deals_year}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+                self._handle_errors(errors, response)
+                return response
+        
+        # Get month and year for file naming
+        file_month = dropship_month or deals_month
+        file_year = dropship_year or deals_year
+        
+        if file_month is None or file_year is None:
+            error_msg = "Could not determine month and year from file names"
+            errors.append(error_msg)
+            logger.error(error_msg)
+            self._handle_errors(errors, response)
             return response
             
         # =====================================================================
@@ -714,11 +775,16 @@ class InventoryService:
             
         # Save the workbook and prepare response
         try:
+            # Create a descriptive file name
+            month_name = self._get_month_name(file_month)
+            file_name = f"{month_name}_All_Sales_{file_year}.xlsx"
+            
             workbook_bytes = io.BytesIO()
             new_workbook.save(workbook_bytes)
             workbook_binary = workbook_bytes.getvalue()
-            response.data = FileModel(name="dropship_sales.xlsx", content=workbook_binary)
-            logger.info("Excel workbook saved with Dropship Sales, Mixed, and Wine sheets")
+            
+            response.data = FileModel(name=file_name, content=workbook_binary)
+            logger.info(f"Excel workbook saved as {file_name} with Dropship Sales, Mixed, and Wine sheets")
             return response
         except Exception as e:
             error_msg = f"Error saving workbook: {str(e)}"
