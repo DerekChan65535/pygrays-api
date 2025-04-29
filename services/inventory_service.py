@@ -2,12 +2,9 @@ import csv
 import io
 import logging
 import re
-from http.client import responses
-from io import BytesIO
-from typing import List
+from typing import List, Tuple, Dict, Optional
 
 from openpyxl import Workbook
-
 from models.response_base import ResponseBase
 from models.file_model import FileModel
 
@@ -15,7 +12,6 @@ import decimal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class InventoryService:
     # Define required columns with their expected data types
@@ -41,21 +37,13 @@ class InventoryService:
         "FreightCodeDescription": str
     }
 
-    uom_columns_schema = {
+    # Note: uom_columns_schema is defined but not fully used in the original code.
+    # For mapping, we only need "Item" and "UOM", so we'll define a specific schema for that.
+    uom_mapping_schema = {
         "Item": str,
-        "Category": str,
-        "Description": str,
-        "UOM": decimal.Decimal,
-        "Quantity Subinventory": str,
-        "Value Subinventory": str,
-        "Quantity Receiving": str,
-        "Value Receiving": str,
-        "Quantity Intransit": str,
-        "Value Intransit": str,
-        "Total Quantity": str,
-        "Extended Value": str
+        "UOM": decimal.Decimal
     }
-    
+
     def __init__(self):
         pass
 
@@ -129,7 +117,6 @@ class InventoryService:
             month = int(date[:2])
             year = int(date[2:4])
 
-
             # Ensure that all files have the same month and year
             if consensus_month is None:
                 consensus_month = month
@@ -143,206 +130,175 @@ class InventoryService:
                 if year != consensus_year:
                     return False
 
-
-
         return True
 
-    def _load_uom_mapping_from_csv(self, csv_file: FileModel, response: ResponseBase) -> dict[str, str] | None:
+    def _load_csv_data(self, file: FileModel, schema: Dict[str, type]) -> Tuple[List[Dict], List[str]]:
         """
-        Load Item Number to UOM mapping from CSV file.
-        
+        Load and validate CSV data based on a given schema.
+
         Args:
-            csv_file: The CSV file containing item number and UOM mappings
-            response: Response object to populate in case of errors
-            
+            file: The CSV file to process.
+            schema: Dictionary mapping column names to expected data types.
+
         Returns:
-            A dictionary mapping item numbers to UOMs, or None if validation fails
+            Tuple of (list of validated row dictionaries, list of error messages).
+        """
+        rows = self._load_csv_from_bytes(file.content)
+        if not rows:
+            return [], [f"No data in file {file.name}"]
+
+        headers = rows[0]
+        missing_columns = [col for col in schema.keys() if col not in headers]
+        if missing_columns:
+            error_message = f"Missing required columns in {file.name}: {', '.join(missing_columns)}"
+            return [], [error_message]
+
+        validated_rows = []
+        errors = []
+
+        for row_index, row in enumerate(rows[1:], start=2):  # Skip header
+            if len(row) != len(headers):
+                errors.append(f"Row {row_index} in {file.name}: mismatched number of columns")
+                continue
+
+            row_dict = {}
+            row_invalid = False
+            for i, header in enumerate(headers):
+                value = row[i] if i < len(row) else ""
+                if header in schema:
+                    expected_type = schema[header]
+                    if value and expected_type == decimal.Decimal:
+                        try:
+                            # remove anything but digits and decimal point from the string
+                            value = re.sub(r'[^\d.]', '', value)
+                            value = decimal.Decimal(value)
+                        except decimal.InvalidOperation:
+                            errors.append(f"Row {row_index}, column '{header}' in {file.name}: invalid decimal value '{value}'")
+                            row_invalid = True
+                            break  # Skip this row
+                row_dict[header] = value
+            if not row_invalid:
+                validated_rows.append(row_dict)
+
+        return validated_rows, errors
+
+    def _load_uom_mapping_from_csv(self, csv_file: FileModel, response: ResponseBase) -> Optional[Dict[str, str]]:
+        """
+        Load Item Number to UOM mapping from a CSV file.
+
+        Args:
+            csv_file: The CSV file containing item number and UOM mappings.
+            response: Response object to populate with errors if any.
+
+        Returns:
+            Dictionary mapping item numbers to UOMs, or None if validation fails.
         """
         logger.info("Loading UOM mapping from CSV")
-        
-        # Load CSV data
-        soh_rows = self._load_csv_from_bytes(csv_file.content)
-        
-        # Skip header row if it exists
-        data_rows = soh_rows[1:] if len(soh_rows) > 1 else []
-        
-        # Step 1: First collect all mappings as tuples
-        mapping_tuples = []
-        for row in data_rows:
-            # Assuming item number is in the first column and UOM in the second column
-            if len(row) >= 2:
-                item_number = row[0].strip()
-                uom = row[1].strip()
-                if item_number and uom:
-                    mapping_tuples.append((item_number, uom))
-        
-        logger.info(f"Extracted {len(mapping_tuples)} item number to UOM mappings from CSV")
-        
-        # Step 2: Check for duplicates with different values
+
+        rows, errors = self._load_csv_data(csv_file, self.uom_mapping_schema)
+        if errors:
+            logger.error(f"Errors loading UOM mapping from {csv_file.name}: {errors}")
+            response.errors.extend(errors)
+            response.is_success = False
+            return None
+
+        # Build the mapping and check for conflicts
         item_uom_map = {}
         conflicting_items = {}
-        
-        for item_number, uom in mapping_tuples:
+
+        for row in rows:
+            item_number = row["Item"]
+            uom = row["UOM"]
             if item_number in item_uom_map:
-                current_uom = item_uom_map[item_number]
-                if current_uom != uom:
-                    # Found a duplicate with different UOM value
+                if item_uom_map[item_number] != uom:
                     if item_number not in conflicting_items:
-                        conflicting_items[item_number] = [current_uom]
+                        conflicting_items[item_number] = [item_uom_map[item_number]]
                     conflicting_items[item_number].append(uom)
             else:
                 item_uom_map[item_number] = uom
-        
-        # Step 3: If there are conflicts, set error and return
+
         if conflicting_items:
-            conflict_errors = []
-            for item, uoms in conflicting_items.items():
-                conflict_errors.append(f"Item {item} has conflicting UOM values: {', '.join(uoms)}")
-            
+            conflict_errors = [f"Item {item} has conflicting UOM values: {', '.join(uoms)}"
+                              for item, uoms in conflicting_items.items()]
             error_message = "CSV contains duplicate item numbers with different UOM values"
             logger.error(error_message)
             for err in conflict_errors:
                 logger.error(err)
-                
             response.errors.append(error_message)
             response.errors.extend(conflict_errors)
             response.is_success = False
             return None
-        
-        # Step 4: Return the validated mapping
+
         logger.info(f"Validated {len(item_uom_map)} item number to UOM mappings")
         return item_uom_map
-        
-    def _process_dropship_sales(self, txt_files: list[FileModel], response: ResponseBase) -> list[dict] | None:
+
+    def _process_dropship_sales(self, txt_files: List[FileModel], response: ResponseBase) -> Optional[List[Dict]]:
         """
         Process DropshipSales files to extract and validate data.
-        
+
         Args:
-            txt_files: List of text files to process
-            response: Response object to populate in case of errors
-            
+            txt_files: List of text files to process.
+            response: Response object to populate with errors if any.
+
         Returns:
-            A list of dictionaries with validated data, or None if validation fails
+            List of dictionaries with validated data, or None if validation fails.
         """
         logger.info("Processing DropshipSales files")
-        
-        # Filter and sort DropshipSales files
-        dropship_sales_files = sorted([x for x in txt_files 
-                                       if re.match(r'^DropshipSales\d{8}\.txt$', x.name)], 
-                                       key=lambda x: x.name)
-        
-        # Validate file names
+
+        dropship_sales_files = sorted([x for x in txt_files if re.match(r'^DropshipSales\d{8}\.txt$', x.name)],
+                                      key=lambda x: x.name)
+
         if not self._validate_file_names_date([x.name for x in dropship_sales_files]):
             response.errors.append("Invalid file names")
             response.is_success = False
             return None
-        
-        # Parse files and combine data
-        items = []
-        for file in dropship_sales_files:
-            rows = self._load_csv_from_bytes(file.content)
-            if not rows:
-                continue
-                
-            # Check if header is present and matches required columns
-            if not rows or len(rows) < 2:  # Need at least header and one data row
-                logger.warning(f"File {file.name} has no data rows")
-                continue
-                
-            headers = rows[0]
-            # Check if all required columns are present
-            missing_columns = [col for col in self.dropship_sales_columns_schema.keys() if col not in headers]
-            if missing_columns:
-                error_message = f"Missing required columns in {file.name}: {', '.join(missing_columns)}"
-                logger.error(error_message)
-                response.errors.append(error_message)
-                response.is_success = False
-                return None
-                
-            # Convert rows to dictionaries
-            type_validation_errors = []
-            
-            for row_index, row in enumerate(rows[1:], start=2):  # Skip header row, start=2 for 1-indexed row numbers in error messages
-                if len(row) != len(headers):
-                    logger.warning(f"Skipping row with mismatched length in {file.name}")
-                    continue
-                    
-                row_dict = {}
-                row_type_errors = []
-                
-                for i, header in enumerate(headers):
-                    value = row[i] if i < len(row) else ""
-                    
-                    # Apply type conversion for required columns
-                    if header in self.dropship_sales_columns_schema:
-                        expected_type = self.dropship_sales_columns_schema[header]
-                        
-                        if value and expected_type == decimal.Decimal:
-                            try:
-                                value = decimal.Decimal(value)
-                            except decimal.InvalidOperation:
-                                error_msg = f"Row {row_index}, column '{header}': value '{value}' cannot be converted to Decimal"
-                                row_type_errors.append(error_msg)
-                                logger.warning(error_msg)
-                    
-                    row_dict[header] = value
-                
-                if row_type_errors:
-                    type_validation_errors.extend(row_type_errors)
-                else:
-                    items.append(row_dict)
-            
-            # If there were type validation errors, return them
-            if type_validation_errors:
-                error_message = f"Data type validation errors in {file.name}"
-                logger.error(error_message)
-                response.errors.append(error_message)
-                response.errors.extend(type_validation_errors)
-                response.is_success = False
-                return None
-        
-        logger.info(f"Processed {len(items)} rows of data from {len(dropship_sales_files)} files")
-        return items
 
-        
-    def process_inventory_request(self, txt_files: list[FileModel], csv_file: FileModel) -> ResponseBase:
+        all_items = []
+        for file in dropship_sales_files:
+            items, errors = self._load_csv_data(file, self.dropship_sales_columns_schema)
+            if errors:
+                logger.error(f"Errors processing {file.name}: {errors}")
+                response.errors.extend(errors)
+                response.is_success = False
+                return None
+            all_items.extend(items)
+
+        logger.info(f"Processed {len(all_items)} rows of data from {len(dropship_sales_files)} files")
+        return all_items
+
+    def process_inventory_request(self, txt_files: List[FileModel], csv_file: FileModel) -> ResponseBase:
         logger.info("Processing inventory request")
-    
         response = ResponseBase()
-    
+
         # Load and validate UOM mapping from CSV
         unit_with_cost = self._load_uom_mapping_from_csv(csv_file, response)
         
         # If loading failed, return the response with errors
         if unit_with_cost is None:
             return response
-    
+
         # Create an empty excel workbook
         new_workbook = Workbook()
         
         # Create a new sheet called "Dropship Sale"
         dropship_sales_sheet = new_workbook.create_sheet("Dropship Sales")
-        
-        # Create a new sheet called "mixed" for mixed deals
-        mixed_sheet = new_workbook.create_sheet("mixed")
-        
-        # Remove the default sheet
+        mixed_sheet = new_workbook.create_sheet("Mixed")
         new_workbook.remove(new_workbook.active)
-        
+
         # Process DropshipSales files
         data_dicts = self._process_dropship_sales(txt_files, response)
         
         # If processing failed, return the response with errors
         if data_dicts is None:
             return response
-            
+
         # Get column names in consistent order
         required_col_names = list(self.dropship_sales_columns_schema.keys())
         
         # Check for mixed deals if needed
         mixed_deals = [item for item in data_dicts if item.get("DealNo") == "MIXED"]
         logger.info(f"Found {len(mixed_deals)} rows with MIXED DealNo")
-        
+
         # Write header row to dropship_sales sheet
         dropship_sales_sheet.append(required_col_names)
         
@@ -350,7 +306,7 @@ class InventoryService:
         for row_dict in data_dicts:
             row_values = [row_dict.get(col, "") for col in required_col_names]
             dropship_sales_sheet.append(row_values)
-            
+
         # Create mixed sheet header with Per_Unit_Cost column after AX_ProductCode
         mixed_sheet_headers = []
         for col in required_col_names:
@@ -360,7 +316,7 @@ class InventoryService:
         
         # Write header to mixed sheet
         mixed_sheet.append(mixed_sheet_headers)
-        
+
         # Write mixed deals data to the mixed sheet with Per_Unit_Cost
         for row_dict in mixed_deals:
             row_values = []
@@ -372,15 +328,12 @@ class InventoryService:
                     unit_cost = unit_with_cost.get(product_code, "")
                     row_values.append(unit_cost)
             mixed_sheet.append(row_values)
-            
+
         logger.info(f"Wrote {len(data_dicts)} rows to Dropship Sales sheet and {len(mixed_deals)} rows to mixed sheet")
 
-        # Save workbook to bytes
-        workbook_bytes = BytesIO()
+        workbook_bytes = io.BytesIO()
         new_workbook.save(workbook_bytes)
         workbook_binary = workbook_bytes.getvalue()
         response.data = FileModel(name="dropship_sales.xlsx", content=workbook_binary)
-
         logger.info("Excel workbook saved with Dropship Sales and mixed sheets")
-        
         return response
