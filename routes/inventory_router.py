@@ -94,15 +94,14 @@ async def create_upload_files(
         # If it returns a JSON string, Response is okay, but set media_type
         try:
             # Try to parse the JSON string potentially returned by to_json()
-            json_content = json.loads(response.to_json())
             return JSONResponse(
                 status_code=400,
-                content=json_content
+                content=response.to_dict()
             )
         except (json.JSONDecodeError, TypeError):
             # If to_json() returns a plain string or something else, use Response
             return fastapi.responses.Response(
                 status_code=400,
-                content=str(response.to_json()),  # Ensure it's a string
+                content=str(response.to_dict()),  # Ensure it's a string
                 media_type="application/json"  # Assuming the string is JSON
             )

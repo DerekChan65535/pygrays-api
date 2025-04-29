@@ -5,7 +5,7 @@ class ResponseBase:
         self.data = data
         self.is_success = is_success if is_success is not None else True  # Default to True
 
-    def to_json(self):
+    def to_dict(self):
         return {
             "is_success": self.is_success,
             "data": self.data,
