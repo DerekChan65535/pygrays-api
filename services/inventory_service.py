@@ -37,6 +37,30 @@ class InventoryService:
         "FreightCodeDescription": str
     }
 
+    deals_columns_schema = {
+        "Customer": str,
+        "AX_ProductCode": str,
+        "GST": str,
+        "Units": str,
+        "Price": decimal.Decimal,
+        "Amount": decimal.Decimal,
+        "SaleNo": str,
+        "VendorNo": str,
+        "ItemNo": str,
+        "Description": str,
+        "Serial_No": str,
+        "Vendor_Ref_No": str,
+        "DropShipper": str,
+        "Consignment": str,
+        "DealNo": str,
+        "Column1": str,
+        "BP": str,
+        "SaleType": str,
+        "DivisionCode": str,
+        "DivisionDescription": str,
+        "FreightCodeDescription": str
+    }
+
     # Note: uom_columns_schema is defined but not fully used in the original code.
     # For mapping, we only need "Item" and "UOM", so we'll define a specific schema for that.
     uom_mapping_schema = {
