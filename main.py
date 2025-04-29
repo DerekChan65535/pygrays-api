@@ -13,11 +13,11 @@ def create_app():
     # Configure CORS middleware
     a.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Allows all origins
+        allow_origins=["*"],
         allow_credentials=True,
-        allow_methods=["*"],  # Allows all methods
-        allow_headers=["*"],  # Allows all headers
-        expose_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["Content-Disposition"],
     )
     
     a.container = container
@@ -25,4 +25,3 @@ def create_app():
     return a
 
 app = create_app()
-
