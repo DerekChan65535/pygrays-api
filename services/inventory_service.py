@@ -203,6 +203,7 @@ class InventoryService:
             # Create sheets for data
             dropship_sales_sheet = new_workbook.create_sheet("Dropship Sales")
             mixed_sheet = new_workbook.create_sheet("Mixed")
+            wine_sheet = new_workbook.create_sheet("Wine")
             
             # Remove the default sheet
             new_workbook.remove(new_workbook.active)
@@ -293,6 +294,39 @@ class InventoryService:
         except Exception as e:
             errors.append(f"Error writing to Mixed sheet: {str(e)}")
             logger.error("Error writing to Mixed sheet", exc_info=True)
+            return False
+    
+    def _write_wine_sheet(self, workbook: Workbook, data_dicts: List[Dict], errors: List[str]) -> bool:
+        """
+        Write wine deals data to the Wine sheet.
+        
+        Args:
+            workbook: The workbook to write to.
+            data_dicts: Data to write to the sheet.
+            errors: List to collect error messages.
+            
+        Returns:
+            True if successful, False if errors occurred.
+        """
+        try:
+            sheet = workbook["Wine"]
+            
+            # Get column names in consistent order
+            required_col_names = list(self.deals_columns_schema.keys())
+            
+            # Write header row 
+            sheet.append(required_col_names)
+            
+            # Write data rows using the required column order
+            for row_dict in data_dicts:
+                row_values = [row_dict.get(col, "") for col in required_col_names]
+                sheet.append(row_values)
+                
+            logger.info(f"Wrote {len(data_dicts)} rows to Wine sheet")
+            return True
+        except Exception as e:
+            errors.append(f"Error writing to Wine sheet: {str(e)}")
+            logger.error("Error writing to Wine sheet", exc_info=True)
             return False
 
     def _load_csv_data(self, file: FileModel, schema: Dict[str, type], errors: List[str]) -> List[Dict]:
@@ -399,6 +433,41 @@ class InventoryService:
         logger.info(f"Validated {len(item_uom_map)} item number to UOM mappings")
         return item_uom_map
 
+    def _process_deals_files(self, txt_files: List[FileModel], errors: List[str]) -> Optional[List[Dict]]:
+        """
+        Process Deals files to extract and validate data.
+    
+        Args:
+            txt_files: List of text files to process.
+            errors: List to collect error messages.
+    
+        Returns:
+            List of dictionaries with validated data, or None if validation fails.
+        """
+        logger.info("Processing Deals files")
+    
+        deals_files = sorted([x for x in txt_files if re.match(r'^Deals\d{8}\.txt$', x.name)],
+                              key=lambda x: x.name)
+        
+        if not deals_files:
+            errors.append("No Deals files found in the provided files")
+            return None
+    
+        if not self._validate_file_names_date([x.name for x in deals_files]):
+            errors.append("Invalid file names - all files must have the same month and year")
+            return None
+    
+        all_items = []
+        for file in deals_files:
+            items = self._load_csv_data(file, self.deals_columns_schema, errors)
+            if len(errors) > 0:
+                logger.error(f"Errors processing {file.name}: {errors}")
+                return None
+            all_items.extend(items)
+    
+        logger.info(f"Processed {len(all_items)} rows of data from {len(deals_files)} files")
+        return all_items
+    
     def _process_dropship_sales(self, txt_files: List[FileModel], errors: List[str]) -> Optional[List[Dict]]:
         """
         Process DropshipSales files to extract and validate data.
@@ -439,7 +508,7 @@ class InventoryService:
         Process inventory request by handling input files, generating data, and creating an Excel file.
         
         Args:
-            txt_files: List of text files containing dropship sales data.
+            txt_files: List of text files containing dropship sales and deals data.
             csv_file: CSV file containing UOM mapping data.
             
         Returns:
@@ -461,6 +530,11 @@ class InventoryService:
         
         # Process DropshipSales files
         data_dicts = self._process_dropship_sales(txt_files, errors)
+        if self._handle_errors(errors, response):
+            return response
+            
+        # Process Deals files
+        deals_data = self._process_deals_files(txt_files, errors)
         if self._handle_errors(errors, response):
             return response
             
@@ -492,13 +566,18 @@ class InventoryService:
             if self._handle_errors(errors, response):
                 return response
             
+        # Write deals data to Wine sheet
+        if deals_data and not self._write_wine_sheet(new_workbook, deals_data, errors):
+            if self._handle_errors(errors, response):
+                return response
+            
         # Save the workbook and prepare response
         try:
             workbook_bytes = io.BytesIO()
             new_workbook.save(workbook_bytes)
             workbook_binary = workbook_bytes.getvalue()
             response.data = FileModel(name="dropship_sales.xlsx", content=workbook_binary)
-            logger.info("Excel workbook saved with Dropship Sales and mixed sheets")
+            logger.info("Excel workbook saved with Dropship Sales, Mixed, and Wine sheets")
             return response
         except Exception as e:
             error_msg = f"Error saving workbook: {str(e)}"
