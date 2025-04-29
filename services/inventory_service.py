@@ -296,13 +296,15 @@ class InventoryService:
             logger.error("Error writing to Mixed sheet", exc_info=True)
             return False
     
-    def _write_wine_sheet(self, workbook: Workbook, data_dicts: List[Dict], errors: List[str]) -> bool:
+    def _write_wine_sheet(self, workbook: Workbook, data_dicts: List[Dict], 
+                         unit_with_cost: Dict[str, str], errors: List[str]) -> bool:
         """
-        Write wine deals data to the Wine sheet.
+        Write wine deals data to the Wine sheet with Per_Unit_Cost included.
         
         Args:
             workbook: The workbook to write to.
             data_dicts: Data to write to the sheet.
+            unit_with_cost: Mapping of product codes to unit costs.
             errors: List to collect error messages.
             
         Returns:
@@ -314,12 +316,26 @@ class InventoryService:
             # Get column names in consistent order
             required_col_names = list(self.deals_columns_schema.keys())
             
-            # Write header row 
-            sheet.append(required_col_names)
+            # Create wine sheet header with Per_Unit_Cost column after AX_ProductCode
+            wine_sheet_headers = []
+            for col in required_col_names:
+                wine_sheet_headers.append(col)
+                if col == "AX_ProductCode":
+                    wine_sheet_headers.append("Per_Unit_Cost")
             
-            # Write data rows using the required column order
+            # Write header to wine sheet
+            sheet.append(wine_sheet_headers)
+            
+            # Write data rows with Per_Unit_Cost
             for row_dict in data_dicts:
-                row_values = [row_dict.get(col, "") for col in required_col_names]
+                row_values = []
+                for col in required_col_names:
+                    row_values.append(row_dict.get(col, ""))
+                    if col == "AX_ProductCode":
+                        # Add Per_Unit_Cost value from unit_with_cost if available
+                        product_code = row_dict.get("AX_ProductCode", "")
+                        unit_cost = unit_with_cost.get(product_code, "")
+                        row_values.append(unit_cost)
                 sheet.append(row_values)
                 
             logger.info(f"Wrote {len(data_dicts)} rows to Wine sheet")
@@ -538,6 +554,11 @@ class InventoryService:
         if self._handle_errors(errors, response):
             return response
             
+        # Process Deals files
+        deals_data = self._process_deals_files(txt_files, errors)
+        if self._handle_errors(errors, response):
+            return response
+            
         # =====================================================================
         # STAGE 2: Generate/calculate extra data
         # =====================================================================
@@ -567,7 +588,7 @@ class InventoryService:
                 return response
             
         # Write deals data to Wine sheet
-        if deals_data and not self._write_wine_sheet(new_workbook, deals_data, errors):
+        if deals_data and not self._write_wine_sheet(new_workbook, deals_data, unit_with_cost, errors):
             if self._handle_errors(errors, response):
                 return response
             
