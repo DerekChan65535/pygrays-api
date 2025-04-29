@@ -236,8 +236,8 @@ class InventoryService:
             sheet.append(required_col_names)
             
             # Write data rows using the required column order
-            for row_dict in data_dicts:
-                row_values = [row_dict.get(col, "") for col in required_col_names]
+            for item in data_dicts:
+                row_values = [item.get(col, "") for col in required_col_names]
                 sheet.append(row_values)
                 
             logger.info(f"Wrote {len(data_dicts)} rows to Dropship Sales sheet")
@@ -284,23 +284,23 @@ class InventoryService:
             sheet.append(mixed_sheet_headers)
     
             # Write mixed deals data to the mixed sheet with Per_Unit_Cost and calculated columns
-            for row_dict in mixed_deals:
+            for item in mixed_deals:
                 row_values = []
                 per_unit_cost_value = None
                 
                 for col in required_col_names:
-                    row_values.append(row_dict.get(col, ""))
+                    row_values.append(item.get(col, ""))
                     
                     if col == "AX_ProductCode":
                         # Add Per_Unit_Cost value from unit_with_cost if available
-                        product_code = row_dict.get("AX_ProductCode", "")
+                        product_code = item.get("AX_ProductCode", "")
                         per_unit_cost = unit_with_cost.get(product_code, "")
                         per_unit_cost_value = per_unit_cost
                         row_values.append(per_unit_cost)
                         
                     elif col == "Serial_No":
                         # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
-                        units_value = row_dict.get("Units", 0)
+                        units_value = item.get("Units", 0)
                         cogs_value = ""
                         if per_unit_cost_value and units_value:
                             try:
@@ -313,7 +313,7 @@ class InventoryService:
                         row_values.append(cogs_value)
                         
                         # Calculate and add SALE_EX_GST = Amount / 1.1 (rounded to 2 decimal places)
-                        amount_value = row_dict.get("Amount", "")
+                        amount_value = item.get("Amount", "")
                         sale_ex_gst_value = ""
                         if amount_value:
                             try:
@@ -328,7 +328,7 @@ class InventoryService:
                         row_values.append(sale_ex_gst_value)
                         
                         # Calculate and add BP_EX_GST = BP / 1.1 (rounded to 2 decimal places)
-                        bp_value = row_dict.get("BP", "")
+                        bp_value = item.get("BP", "")
                         bp_ex_gst_value = ""
                         if bp_value:
                             try:
@@ -388,23 +388,23 @@ class InventoryService:
             sheet.append(wine_sheet_headers)
             
             # Write data rows with Per_Unit_Cost and calculated columns
-            for row_dict in data_dicts:
+            for item in data_dicts:
                 row_values = []
                 per_unit_cost_value = None
                 
                 for col in required_col_names:
-                    row_values.append(row_dict.get(col, ""))
+                    row_values.append(item.get(col, ""))
                     
                     if col == "AX_ProductCode":
                         # Add Per_Unit_Cost value from unit_with_cost if available
-                        product_code = row_dict.get("AX_ProductCode", "")
+                        product_code = item.get("AX_ProductCode", "")
                         per_unit_cost = unit_with_cost.get(product_code, "")
                         per_unit_cost_value = per_unit_cost
                         row_values.append(per_unit_cost)
                         
                     elif col == "Serial_No":
                         # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
-                        units_value = row_dict.get("Units", 0)
+                        units_value = item.get("Units", 0)
                         cogs_value = ""
                         if per_unit_cost_value and units_value:
                             try:
@@ -417,7 +417,7 @@ class InventoryService:
                         row_values.append(cogs_value)
                         
                         # Calculate and add SALE_EX_GST = Amount / 1.1 (rounded to 2 decimal places)
-                        amount_value = row_dict.get("Amount", "")
+                        amount_value = item.get("Amount", "")
                         sale_ex_gst_value = ""
                         if amount_value:
                             try:
@@ -432,7 +432,7 @@ class InventoryService:
                         row_values.append(sale_ex_gst_value)
                         
                         # Calculate and add BP_EX_GST = BP / 1.1 (rounded to 2 decimal places)
-                        bp_value = row_dict.get("BP", "")
+                        bp_value = item.get("BP", "")
                         bp_ex_gst_value = ""
                         if bp_value:
                             try:
@@ -487,12 +487,12 @@ class InventoryService:
                     errors.append(f"Row {row_index} in {file.name}: mismatched number of columns")
                     continue
     
-                row_dict = {}
+                item = {}
                 row_invalid = False
-                for i, header in enumerate(headers):
+                for i, header_name in enumerate(headers):
                     value = row[i] if i < len(row) else ""
-                    if header in schema:
-                        expected_type = schema[header]
+                    if header_name in schema:
+                        expected_type = schema[header_name]
                         if value:
                             if expected_type == decimal.Decimal:
                                 try:
@@ -500,7 +500,7 @@ class InventoryService:
                                     value = re.sub(r'[^\d.]', '', value)
                                     value = decimal.Decimal(value)
                                 except decimal.InvalidOperation:
-                                    errors.append(f"Row {row_index}, column '{header}' in {file.name}: invalid decimal value '{value}'")
+                                    errors.append(f"Row {row_index}, column '{header_name}' in {file.name}: invalid decimal value '{value}'")
                                     row_invalid = True
                                     break  # Skip this row
                             elif expected_type == int:
@@ -509,12 +509,12 @@ class InventoryService:
                                     value = re.sub(r'[^\d]', '', value)
                                     value = int(value) if value else 0
                                 except ValueError:
-                                    errors.append(f"Row {row_index}, column '{header}' in {file.name}: invalid integer value '{value}'")
+                                    errors.append(f"Row {row_index}, column '{header_name}' in {file.name}: invalid integer value '{value}'")
                                     row_invalid = True
                                     break  # Skip this row
-                    row_dict[header] = value
+                    item[header_name] = value
                 if not row_invalid:
-                    validated_rows.append(row_dict)
+                    validated_rows.append(item)
     
             return validated_rows
         except Exception as e:
