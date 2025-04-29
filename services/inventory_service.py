@@ -355,6 +355,7 @@ class InventoryService:
                          unit_with_cost: Dict[str, str], errors: List[str]) -> bool:
         """
         Write wine deals data to the Wine sheet with Per_Unit_Cost included.
+        Also calculates and includes COGS, SALE_EX_GST, and BP_EX_GST columns.
         
         Args:
             workbook: The workbook to write to.
@@ -372,26 +373,79 @@ class InventoryService:
             required_col_names = list(self.deals_columns_schema.keys())
             
             # Create wine sheet header with Per_Unit_Cost column after AX_ProductCode
+            # and COGS, SALE_EX_GST, BP_EX_GST columns after Serial_No
             wine_sheet_headers = []
             for col in required_col_names:
                 wine_sheet_headers.append(col)
                 if col == "AX_ProductCode":
                     wine_sheet_headers.append("Per_Unit_Cost")
+                elif col == "Serial_No":
+                    wine_sheet_headers.append("COGS")
+                    wine_sheet_headers.append("SALE_EX_GST")
+                    wine_sheet_headers.append("BP_EX_GST")
             
             # Write header to wine sheet
             sheet.append(wine_sheet_headers)
             
-            # Write data rows with Per_Unit_Cost
+            # Write data rows with Per_Unit_Cost and calculated columns
             for row_dict in data_dicts:
                 row_values = []
+                per_unit_cost_value = None
+                
                 for col in required_col_names:
                     row_values.append(row_dict.get(col, ""))
                     
                     if col == "AX_ProductCode":
                         # Add Per_Unit_Cost value from unit_with_cost if available
                         product_code = row_dict.get("AX_ProductCode", "")
-                        unit_cost = unit_with_cost.get(product_code, "")
-                        row_values.append(unit_cost)
+                        per_unit_cost = unit_with_cost.get(product_code, "")
+                        per_unit_cost_value = per_unit_cost
+                        row_values.append(per_unit_cost)
+                        
+                    elif col == "Serial_No":
+                        # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
+                        units_value = row_dict.get("Units", 0)
+                        cogs_value = ""
+                        if per_unit_cost_value and units_value:
+                            try:
+                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost_value) if per_unit_cost_value else decimal.Decimal('0')
+                                cogs_decimal = per_unit_cost_decimal * decimal.Decimal(units_value)
+                                # Round to 2 decimal places using ROUND_HALF_UP
+                                cogs_value = cogs_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                            except (decimal.InvalidOperation, TypeError):
+                                cogs_value = ""
+                        row_values.append(cogs_value)
+                        
+                        # Calculate and add SALE_EX_GST = Amount / 1.1 (rounded to 2 decimal places)
+                        amount_value = row_dict.get("Amount", "")
+                        sale_ex_gst_value = ""
+                        if amount_value:
+                            try:
+                                if isinstance(amount_value, decimal.Decimal):
+                                    sale_ex_gst_decimal = amount_value / decimal.Decimal('1.1')
+                                    # Round to 2 decimal places using ROUND_HALF_UP
+                                    sale_ex_gst_value = sale_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                                else:
+                                    sale_ex_gst_value = ""
+                            except (decimal.InvalidOperation, TypeError):
+                                sale_ex_gst_value = ""
+                        row_values.append(sale_ex_gst_value)
+                        
+                        # Calculate and add BP_EX_GST = BP / 1.1 (rounded to 2 decimal places)
+                        bp_value = row_dict.get("BP", "")
+                        bp_ex_gst_value = ""
+                        if bp_value:
+                            try:
+                                if isinstance(bp_value, decimal.Decimal):
+                                    bp_ex_gst_decimal = bp_value / decimal.Decimal('1.1')
+                                    # Round to 2 decimal places using ROUND_HALF_UP
+                                    bp_ex_gst_value = bp_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                                else:
+                                    bp_ex_gst_value = ""
+                            except (decimal.InvalidOperation, TypeError):
+                                bp_ex_gst_value = ""
+                        row_values.append(bp_ex_gst_value)
+                        
                 sheet.append(row_values)
                 
             logger.info(f"Wrote {len(data_dicts)} rows to Wine sheet")
