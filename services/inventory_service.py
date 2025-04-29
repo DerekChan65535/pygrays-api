@@ -299,37 +299,43 @@ class InventoryService:
                         row_values.append(per_unit_cost)
                         
                     elif col == "Serial_No":
-                        # Calculate and add COGS = Per_Unit_Cost * Units
+                        # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
                         units_value = row_dict.get("Units", 0)
                         cogs_value = ""
                         if per_unit_cost_value and units_value:
                             try:
                                 per_unit_cost_decimal = decimal.Decimal(per_unit_cost_value) if per_unit_cost_value else decimal.Decimal('0')
-                                cogs_value = per_unit_cost_decimal * decimal.Decimal(units_value)
+                                cogs_decimal = per_unit_cost_decimal * decimal.Decimal(units_value)
+                                # Round to 2 decimal places using ROUND_HALF_UP
+                                cogs_value = cogs_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
                             except (decimal.InvalidOperation, TypeError):
                                 cogs_value = ""
                         row_values.append(cogs_value)
                         
-                        # Calculate and add SALE_EX_GST = Amount / 1.1
+                        # Calculate and add SALE_EX_GST = Amount / 1.1 (rounded to 2 decimal places)
                         amount_value = row_dict.get("Amount", "")
                         sale_ex_gst_value = ""
                         if amount_value:
                             try:
                                 if isinstance(amount_value, decimal.Decimal):
-                                    sale_ex_gst_value = amount_value / decimal.Decimal('1.1')
+                                    sale_ex_gst_decimal = amount_value / decimal.Decimal('1.1')
+                                    # Round to 2 decimal places using ROUND_HALF_UP
+                                    sale_ex_gst_value = sale_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
                                 else:
                                     sale_ex_gst_value = ""
                             except (decimal.InvalidOperation, TypeError):
                                 sale_ex_gst_value = ""
                         row_values.append(sale_ex_gst_value)
                         
-                        # Calculate and add BP_EX_GST = BP / 1.1
+                        # Calculate and add BP_EX_GST = BP / 1.1 (rounded to 2 decimal places)
                         bp_value = row_dict.get("BP", "")
                         bp_ex_gst_value = ""
                         if bp_value:
                             try:
                                 if isinstance(bp_value, decimal.Decimal):
-                                    bp_ex_gst_value = bp_value / decimal.Decimal('1.1')
+                                    bp_ex_gst_decimal = bp_value / decimal.Decimal('1.1')
+                                    # Round to 2 decimal places using ROUND_HALF_UP
+                                    bp_ex_gst_value = bp_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
                                 else:
                                     bp_ex_gst_value = ""
                             except (decimal.InvalidOperation, TypeError):
@@ -380,6 +386,7 @@ class InventoryService:
                 row_values = []
                 for col in required_col_names:
                     row_values.append(row_dict.get(col, ""))
+                    
                     if col == "AX_ProductCode":
                         # Add Per_Unit_Cost value from unit_with_cost if available
                         product_code = row_dict.get("AX_ProductCode", "")
