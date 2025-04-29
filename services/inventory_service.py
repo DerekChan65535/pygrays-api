@@ -251,6 +251,7 @@ class InventoryService:
                           unit_with_cost: Dict[str, str], errors: List[str]) -> bool:
         """
         Write mixed deals data to the Mixed sheet with Per_Unit_Cost included.
+        Also calculates and includes COGS, SALE_EX_GST, and BP_EX_GST columns.
         
         Args:
             workbook: The workbook to write to.
@@ -268,25 +269,73 @@ class InventoryService:
             required_col_names = list(self.dropship_sales_columns_schema.keys())
             
             # Create mixed sheet header with Per_Unit_Cost column after AX_ProductCode
+            # and COGS, SALE_EX_GST, BP_EX_GST columns after Serial_No
             mixed_sheet_headers = []
             for col in required_col_names:
                 mixed_sheet_headers.append(col)
                 if col == "AX_ProductCode":
                     mixed_sheet_headers.append("Per_Unit_Cost")
+                elif col == "Serial_No":
+                    mixed_sheet_headers.append("COGS")
+                    mixed_sheet_headers.append("SALE_EX_GST")
+                    mixed_sheet_headers.append("BP_EX_GST")
             
             # Write header to mixed sheet
             sheet.append(mixed_sheet_headers)
     
-            # Write mixed deals data to the mixed sheet with Per_Unit_Cost
+            # Write mixed deals data to the mixed sheet with Per_Unit_Cost and calculated columns
             for row_dict in mixed_deals:
                 row_values = []
+                per_unit_cost_value = None
+                
                 for col in required_col_names:
                     row_values.append(row_dict.get(col, ""))
+                    
                     if col == "AX_ProductCode":
                         # Add Per_Unit_Cost value from unit_with_cost if available
                         product_code = row_dict.get("AX_ProductCode", "")
-                        unit_cost = unit_with_cost.get(product_code, "")
-                        row_values.append(unit_cost)
+                        per_unit_cost = unit_with_cost.get(product_code, "")
+                        per_unit_cost_value = per_unit_cost
+                        row_values.append(per_unit_cost)
+                        
+                    elif col == "Serial_No":
+                        # Calculate and add COGS = Per_Unit_Cost * Units
+                        units_value = row_dict.get("Units", 0)
+                        cogs_value = ""
+                        if per_unit_cost_value and units_value:
+                            try:
+                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost_value) if per_unit_cost_value else decimal.Decimal('0')
+                                cogs_value = per_unit_cost_decimal * decimal.Decimal(units_value)
+                            except (decimal.InvalidOperation, TypeError):
+                                cogs_value = ""
+                        row_values.append(cogs_value)
+                        
+                        # Calculate and add SALE_EX_GST = Amount / 1.1
+                        amount_value = row_dict.get("Amount", "")
+                        sale_ex_gst_value = ""
+                        if amount_value:
+                            try:
+                                if isinstance(amount_value, decimal.Decimal):
+                                    sale_ex_gst_value = amount_value / decimal.Decimal('1.1')
+                                else:
+                                    sale_ex_gst_value = ""
+                            except (decimal.InvalidOperation, TypeError):
+                                sale_ex_gst_value = ""
+                        row_values.append(sale_ex_gst_value)
+                        
+                        # Calculate and add BP_EX_GST = BP / 1.1
+                        bp_value = row_dict.get("BP", "")
+                        bp_ex_gst_value = ""
+                        if bp_value:
+                            try:
+                                if isinstance(bp_value, decimal.Decimal):
+                                    bp_ex_gst_value = bp_value / decimal.Decimal('1.1')
+                                else:
+                                    bp_ex_gst_value = ""
+                            except (decimal.InvalidOperation, TypeError):
+                                bp_ex_gst_value = ""
+                        row_values.append(bp_ex_gst_value)
+                        
                 sheet.append(row_values)
                 
             logger.info(f"Wrote {len(mixed_deals)} rows to Mixed sheet")
