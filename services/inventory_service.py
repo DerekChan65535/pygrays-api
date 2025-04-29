@@ -19,7 +19,7 @@ class InventoryService:
         "Customer": str,
         "AX_ProductCode": str,
         "GST": str,
-        "Units": str,
+        "Units": int,
         "Price": decimal.Decimal,
         "Amount": decimal.Decimal,
         "SaleNo": str,
@@ -32,7 +32,7 @@ class InventoryService:
         "Consignment": str,
         "DealNo": str,
         "Column1": str,
-        "BP": str,
+        "BP": decimal.Decimal,
         "SaleType": str,
         "FreightCodeDescription": str
     }
@@ -41,7 +41,7 @@ class InventoryService:
         "Customer": str,
         "AX_ProductCode": str,
         "GST": str,
-        "Units": str,
+        "Units": int,
         "Price": decimal.Decimal,
         "Amount": decimal.Decimal,
         "SaleNo": str,
@@ -54,7 +54,7 @@ class InventoryService:
         "Consignment": str,
         "DealNo": str,
         "Column1": str,
-        "BP": str,
+        "BP": decimal.Decimal,
         "SaleType": str,
         "DivisionCode": str,
         "DivisionDescription": str,
@@ -383,15 +383,25 @@ class InventoryService:
                     value = row[i] if i < len(row) else ""
                     if header in schema:
                         expected_type = schema[header]
-                        if value and expected_type == decimal.Decimal:
-                            try:
-                                # remove anything but digits and decimal point from the string
-                                value = re.sub(r'[^\d.]', '', value)
-                                value = decimal.Decimal(value)
-                            except decimal.InvalidOperation:
-                                errors.append(f"Row {row_index}, column '{header}' in {file.name}: invalid decimal value '{value}'")
-                                row_invalid = True
-                                break  # Skip this row
+                        if value:
+                            if expected_type == decimal.Decimal:
+                                try:
+                                    # remove anything but digits and decimal point from the string
+                                    value = re.sub(r'[^\d.]', '', value)
+                                    value = decimal.Decimal(value)
+                                except decimal.InvalidOperation:
+                                    errors.append(f"Row {row_index}, column '{header}' in {file.name}: invalid decimal value '{value}'")
+                                    row_invalid = True
+                                    break  # Skip this row
+                            elif expected_type == int:
+                                try:
+                                    # remove anything but digits from the string
+                                    value = re.sub(r'[^\d]', '', value)
+                                    value = int(value) if value else 0
+                                except ValueError:
+                                    errors.append(f"Row {row_index}, column '{header}' in {file.name}: invalid integer value '{value}'")
+                                    row_invalid = True
+                                    break  # Skip this row
                     row_dict[header] = value
                 if not row_invalid:
                     validated_rows.append(row_dict)
