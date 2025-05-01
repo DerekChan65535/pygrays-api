@@ -314,7 +314,15 @@ class InventoryService:
                         product_code = item.get("AX_ProductCode", "")
                         per_unit_cost = unit_with_cost.get(product_code, "")
                         per_unit_cost_value = per_unit_cost
-                        row_values.append(per_unit_cost)
+                        # Round per_unit_cost to 2 decimal places for display in Excel, without affecting calculation value
+                        display_per_unit_cost = ""
+                        if per_unit_cost:
+                            try:
+                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost) if per_unit_cost else decimal.Decimal('0')
+                                display_per_unit_cost = per_unit_cost_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                            except (decimal.InvalidOperation, TypeError):
+                                display_per_unit_cost = per_unit_cost
+                        row_values.append(display_per_unit_cost)
                         
                     elif col == "Serial_No":
                         # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
@@ -418,7 +426,15 @@ class InventoryService:
                         product_code = item.get("AX_ProductCode", "")
                         per_unit_cost = unit_with_cost.get(product_code, "")
                         per_unit_cost_value = per_unit_cost
-                        row_values.append(per_unit_cost)
+                        # Round per_unit_cost to 2 decimal places for display in Excel, without affecting calculation value
+                        display_per_unit_cost = ""
+                        if per_unit_cost:
+                            try:
+                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost) if per_unit_cost else decimal.Decimal('0')
+                                display_per_unit_cost = per_unit_cost_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                            except (decimal.InvalidOperation, TypeError):
+                                display_per_unit_cost = per_unit_cost
+                        row_values.append(display_per_unit_cost)
                         
                     elif col == "Serial_No":
                         # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
