@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class InventoryService:
     # Define required columns with their expected data types
-    dropship_sales_columns_schema = {
+    dropship_sales_import_schema = {
         "Customer": str,
         "AX_ProductCode": str,
         "GST": str,
@@ -37,7 +37,7 @@ class InventoryService:
         "FreightCodeDescription": str
     }
 
-    deals_columns_schema = {
+    deals_import_schema = {
         "Customer": str,
         "AX_ProductCode": str,
         "GST": str,
@@ -248,7 +248,7 @@ class InventoryService:
             sheet = workbook["Dropship Sales"]
             
             # Get column names in consistent order
-            required_col_names = list(self.dropship_sales_columns_schema.keys())
+            required_col_names = list(self.dropship_sales_import_schema.keys())
             
             # Write header row 
             sheet.append(required_col_names)
@@ -284,7 +284,7 @@ class InventoryService:
             sheet = workbook["Mixed"]
             
             # Get column names in consistent order
-            required_col_names = list(self.dropship_sales_columns_schema.keys())
+            required_col_names = list(self.dropship_sales_import_schema.keys())
             
             # Create mixed sheet header with Per_Unit_Cost column after AX_ProductCode
             # and COGS, SALE_EX_GST, BP_EX_GST columns after Serial_No
@@ -396,7 +396,7 @@ class InventoryService:
             sheet = workbook["Wine"]
             
             # Get column names in consistent order
-            required_col_names = list(self.deals_columns_schema.keys())
+            required_col_names = list(self.deals_import_schema.keys())
             
             # Create wine sheet header with Per_Unit_Cost column after AX_ProductCode
             # and COGS, SALE_EX_GST, BP_EX_GST columns after Serial_No
@@ -634,7 +634,7 @@ class InventoryService:
     
         all_items = []
         for file in deals_files:
-            items = self._load_csv_data(file, self.deals_columns_schema, errors)
+            items = self._load_csv_data(file, self.deals_import_schema, errors)
             if len(errors) > 0:
                 logger.error(f"Errors processing {file.name}: {errors}")
                 return None, None, None
@@ -674,7 +674,7 @@ class InventoryService:
     
         all_items = []
         for file in dropship_sales_files:
-            items = self._load_csv_data(file, self.dropship_sales_columns_schema, errors)
+            items = self._load_csv_data(file, self.dropship_sales_import_schema, errors)
             if len(errors) > 0:
                 logger.error(f"Errors processing {file.name}: {errors}")
                 return None, None, None
