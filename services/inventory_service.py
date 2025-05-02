@@ -265,6 +265,75 @@ class InventoryService:
         logger.info(f"Found {len(mixed_deals)} rows with MIXED DealNo")
         return mixed_deals
         
+    def _add_per_unit_cost(self, data_dicts: List[Dict], unit_with_cost: Dict[str, str]) -> List[Dict]:
+        """
+        Add Per_Unit_Cost field to each item in the data dictionary.
+        
+        Args:
+            data_dicts: List of data dictionaries to enrich.
+            unit_with_cost: Mapping of product codes to unit costs.
+            
+        Returns:
+            List of dictionaries with Per_Unit_Cost added.
+        """
+        for item in data_dicts:
+            product_code = item.get("AX_ProductCode", "")
+            per_unit_cost = unit_with_cost.get(product_code, "")
+            item["Per_Unit_Cost"] = per_unit_cost
+        
+        logger.info(f"Added Per_Unit_Cost field to {len(data_dicts)} items")
+        return data_dicts
+    
+    def _calculate_additional_fields(self, data_dicts: List[Dict]) -> List[Dict]:
+        """
+        Calculate and add COGS, SALE_EX_GST, and BP_EX_GST fields to data dictionaries.
+        
+        Args:
+            data_dicts: List of data dictionaries to enrich.
+            
+        Returns:
+            List of dictionaries with calculated fields added.
+        """
+        for item in data_dicts:
+            # Calculate COGS = Per_Unit_Cost * Units
+            per_unit_cost = item.get("Per_Unit_Cost", "")
+            units_value = item.get("Units", 0)
+            
+            if per_unit_cost and units_value:
+                try:
+                    per_unit_cost_decimal = decimal.Decimal(per_unit_cost) if per_unit_cost else decimal.Decimal('0')
+                    cogs_decimal = per_unit_cost_decimal * decimal.Decimal(units_value)
+                    item["COGS"] = cogs_decimal
+                except (decimal.InvalidOperation, TypeError):
+                    item["COGS"] = ""
+            else:
+                item["COGS"] = ""
+            
+            # Calculate SALE_EX_GST = Amount / 1.1
+            amount_value = item.get("Amount", "")
+            if amount_value and isinstance(amount_value, decimal.Decimal):
+                try:
+                    sale_ex_gst_decimal = amount_value / decimal.Decimal('1.1')
+                    item["SALE_EX_GST"] = sale_ex_gst_decimal
+                except (decimal.InvalidOperation, TypeError):
+                    item["SALE_EX_GST"] = ""
+            else:
+                item["SALE_EX_GST"] = ""
+            
+            # Calculate BP_EX_GST = BP / 1.1
+            bp_value = item.get("BP", "")
+            if bp_value and isinstance(bp_value, decimal.Decimal):
+                try:
+                    bp_ex_gst_decimal = bp_value / decimal.Decimal('1.1')
+                    item["BP_EX_GST"] = bp_ex_gst_decimal
+                except (decimal.InvalidOperation, TypeError):
+                    item["BP_EX_GST"] = ""
+            else:
+                item["BP_EX_GST"] = ""
+                
+        logger.info(f"Calculated additional fields for {len(data_dicts)} items")
+        return data_dicts
+        
     def _handle_errors(self, errors: List[str], response: ResponseBase) -> bool:
         """
         Helper method to check for errors and update response accordingly.
@@ -311,7 +380,7 @@ class InventoryService:
             
     def _write_dropship_sales_sheet(self, workbook: Workbook, data_dicts: List[Dict], errors: List[str]) -> bool:
         """
-        Write dropship sales data to the Excel sheet.
+        Write dropship sales data to the Excel sheet using export schema.
         
         Args:
             workbook: The workbook to write to.
@@ -324,15 +393,28 @@ class InventoryService:
         try:
             sheet = workbook["Dropship Sales"]
             
-            # Get column names in consistent order
-            required_col_names = list(self.dropship_sales_import_schema.keys())
+            # Use export schema for column names in consistent order
+            headers = list(self.dropship_sales_export_schema.keys())
             
             # Write header row 
-            sheet.append(required_col_names)
+            sheet.append(headers)
             
             # Write data rows using the required column order
             for item in data_dicts:
-                row_values = [item.get(col, "") for col in required_col_names]
+                # Extract values from item and apply rounding for decimal fields
+                row_values = []
+                for col in headers:
+                    value = item.get(col, "")
+                    
+                    # Apply rounding for decimal fields
+                    if isinstance(value, decimal.Decimal):
+                        try:
+                            value = value.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                        except (decimal.InvalidOperation, TypeError):
+                            value = ""
+                            
+                    row_values.append(value)
+                    
                 sheet.append(row_values)
                 
             logger.info(f"Wrote {len(data_dicts)} rows to Dropship Sales sheet")
@@ -342,16 +424,13 @@ class InventoryService:
             logger.error("Error writing to Dropship Sales sheet", exc_info=True)
             return False
             
-    def _write_mixed_sheet(self, workbook: Workbook, mixed_deals: List[Dict], 
-                          unit_with_cost: Dict[str, str], errors: List[str]) -> bool:
+    def _write_mixed_sheet(self, workbook: Workbook, mixed_deals: List[Dict], errors: List[str]) -> bool:
         """
-        Write mixed deals data to the Mixed sheet with Per_Unit_Cost included.
-        Also calculates and includes COGS, SALE_EX_GST, and BP_EX_GST columns.
+        Write mixed deals data to the Mixed sheet using pre-calculated fields.
         
         Args:
             workbook: The workbook to write to.
             mixed_deals: Mixed deals data to write.
-            unit_with_cost: Mapping of product codes to unit costs.
             errors: List to collect error messages.
             
         Returns:
@@ -360,90 +439,25 @@ class InventoryService:
         try:
             sheet = workbook["Mixed"]
             
-            # Get column names in consistent order
-            required_col_names = list(self.dropship_sales_import_schema.keys())
-            
-            # Create mixed sheet header with Per_Unit_Cost column after AX_ProductCode
-            # and COGS, SALE_EX_GST, BP_EX_GST columns after Serial_No
-            mixed_sheet_headers = []
-            for col in required_col_names:
-                mixed_sheet_headers.append(col)
-                if col == "AX_ProductCode":
-                    mixed_sheet_headers.append("Per_Unit_Cost")
-                elif col == "Serial_No":
-                    mixed_sheet_headers.append("COGS")
-                    mixed_sheet_headers.append("SALE_EX_GST")
-                    mixed_sheet_headers.append("BP_EX_GST")
-            
-            # Write header to mixed sheet
-            sheet.append(mixed_sheet_headers)
+            # Use the mixed export schema for headers
+            headers = list(self.mixed_export_schema.keys())
+            sheet.append(headers)
     
-            # Write mixed deals data to the mixed sheet with Per_Unit_Cost and calculated columns
+            # Write mixed deals data to the mixed sheet
             for item in mixed_deals:
                 row_values = []
-                per_unit_cost_value = None
                 
-                for col in required_col_names:
-                    row_values.append(item.get(col, ""))
+                for col in headers:
+                    value = item.get(col, "")
                     
-                    if col == "AX_ProductCode":
-                        # Add Per_Unit_Cost value from unit_with_cost if available
-                        product_code = item.get("AX_ProductCode", "")
-                        per_unit_cost = unit_with_cost.get(product_code, "")
-                        per_unit_cost_value = per_unit_cost
-                        # Round per_unit_cost to 2 decimal places for display in Excel, without affecting calculation value
-                        display_per_unit_cost = ""
-                        if per_unit_cost:
-                            try:
-                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost) if per_unit_cost else decimal.Decimal('0')
-                                display_per_unit_cost = per_unit_cost_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                            except (decimal.InvalidOperation, TypeError):
-                                display_per_unit_cost = per_unit_cost
-                        row_values.append(display_per_unit_cost)
-                        
-                    elif col == "Serial_No":
-                        # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
-                        units_value = item.get("Units", 0)
-                        cogs_value = ""
-                        if per_unit_cost_value and units_value:
-                            try:
-                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost_value) if per_unit_cost_value else decimal.Decimal('0')
-                                cogs_decimal = per_unit_cost_decimal * decimal.Decimal(units_value)
-                                # Round to 2 decimal places using ROUND_HALF_UP
-                                cogs_value = cogs_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                            except (decimal.InvalidOperation, TypeError):
-                                cogs_value = ""
-                        row_values.append(cogs_value)
-                        
-                        # Calculate and add SALE_EX_GST = Amount / 1.1 (rounded to 2 decimal places)
-                        amount_value = item.get("Amount", "")
-                        sale_ex_gst_value = ""
-                        if amount_value:
-                            try:
-                                if isinstance(amount_value, decimal.Decimal):
-                                    sale_ex_gst_decimal = amount_value / decimal.Decimal('1.1')
-                                    # Round to 2 decimal places using ROUND_HALF_UP
-                                    sale_ex_gst_value = sale_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                                else:
-                                    sale_ex_gst_value = ""
-                            except (decimal.InvalidOperation, TypeError):
-                                sale_ex_gst_value = ""
-                        row_values.append(sale_ex_gst_value)
-                        
-                        # Calculate and add BP_EX_GST = BP / 1.1 (rounded to 2 decimal places)
-                        bp_value = item.get("BP", "")
-                        bp_ex_gst_value = ""
-                        if bp_value:
-                            try:
-                                if isinstance(bp_value, decimal.Decimal):
-                                    bp_ex_gst_decimal = bp_value / decimal.Decimal('1.1')
-                                    # Round to 2 decimal places using ROUND_HALF_UP
-                                    bp_ex_gst_value = bp_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                                else:
-                                    bp_ex_gst_value = ""
-                            except (decimal.InvalidOperation, TypeError):
-                                bp_ex_gst_value = ""
-                        row_values.append(bp_ex_gst_value)
+                    # Apply rounding for decimal fields
+                    if isinstance(value, decimal.Decimal):
+                        try:
+                            value = value.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                        except (decimal.InvalidOperation, TypeError):
+                            value = ""
+                            
+                    row_values.append(value)
                         
                 sheet.append(row_values)
                 
@@ -454,16 +468,13 @@ class InventoryService:
             logger.error("Error writing to Mixed sheet", exc_info=True)
             return False
     
-    def _write_wine_sheet(self, workbook: Workbook, data_dicts: List[Dict], 
-                         unit_with_cost: Dict[str, str], errors: List[str]) -> bool:
+    def _write_wine_sheet(self, workbook: Workbook, data_dicts: List[Dict], errors: List[str]) -> bool:
         """
-        Write wine deals data to the Wine sheet with Per_Unit_Cost included.
-        Also calculates and includes COGS, SALE_EX_GST, and BP_EX_GST columns.
+        Write wine deals data to the Wine sheet using pre-calculated fields.
         
         Args:
             workbook: The workbook to write to.
             data_dicts: Data to write to the sheet.
-            unit_with_cost: Mapping of product codes to unit costs.
             errors: List to collect error messages.
             
         Returns:
@@ -472,90 +483,27 @@ class InventoryService:
         try:
             sheet = workbook["Wine"]
             
-            # Get column names in consistent order
-            required_col_names = list(self.deals_import_schema.keys())
-            
-            # Create wine sheet header with Per_Unit_Cost column after AX_ProductCode
-            # and COGS, SALE_EX_GST, BP_EX_GST columns after Serial_No
-            wine_sheet_headers = []
-            for col in required_col_names:
-                wine_sheet_headers.append(col)
-                if col == "AX_ProductCode":
-                    wine_sheet_headers.append("Per_Unit_Cost")
-                elif col == "Serial_No":
-                    wine_sheet_headers.append("COGS")
-                    wine_sheet_headers.append("SALE_EX_GST")
-                    wine_sheet_headers.append("BP_EX_GST")
+            # Use the wine export schema for headers
+            headers = list(self.wine_export_schema.keys())
             
             # Write header to wine sheet
-            sheet.append(wine_sheet_headers)
+            sheet.append(headers)
             
-            # Write data rows with Per_Unit_Cost and calculated columns
+            # Write data rows with applied rounding
             for item in data_dicts:
                 row_values = []
-                per_unit_cost_value = None
                 
-                for col in required_col_names:
-                    row_values.append(item.get(col, ""))
+                for col in headers:
+                    value = item.get(col, "")
                     
-                    if col == "AX_ProductCode":
-                        # Add Per_Unit_Cost value from unit_with_cost if available
-                        product_code = item.get("AX_ProductCode", "")
-                        per_unit_cost = unit_with_cost.get(product_code, "")
-                        per_unit_cost_value = per_unit_cost
-                        # Round per_unit_cost to 2 decimal places for display in Excel, without affecting calculation value
-                        display_per_unit_cost = ""
-                        if per_unit_cost:
-                            try:
-                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost) if per_unit_cost else decimal.Decimal('0')
-                                display_per_unit_cost = per_unit_cost_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                            except (decimal.InvalidOperation, TypeError):
-                                display_per_unit_cost = per_unit_cost
-                        row_values.append(display_per_unit_cost)
-                        
-                    elif col == "Serial_No":
-                        # Calculate and add COGS = Per_Unit_Cost * Units (rounded to 2 decimal places)
-                        units_value = item.get("Units", 0)
-                        cogs_value = ""
-                        if per_unit_cost_value and units_value:
-                            try:
-                                per_unit_cost_decimal = decimal.Decimal(per_unit_cost_value) if per_unit_cost_value else decimal.Decimal('0')
-                                cogs_decimal = per_unit_cost_decimal * decimal.Decimal(units_value)
-                                # Round to 2 decimal places using ROUND_HALF_UP
-                                cogs_value = cogs_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                            except (decimal.InvalidOperation, TypeError):
-                                cogs_value = ""
-                        row_values.append(cogs_value)
-                        
-                        # Calculate and add SALE_EX_GST = Amount / 1.1 (rounded to 2 decimal places)
-                        amount_value = item.get("Amount", "")
-                        sale_ex_gst_value = ""
-                        if amount_value:
-                            try:
-                                if isinstance(amount_value, decimal.Decimal):
-                                    sale_ex_gst_decimal = amount_value / decimal.Decimal('1.1')
-                                    # Round to 2 decimal places using ROUND_HALF_UP
-                                    sale_ex_gst_value = sale_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                                else:
-                                    sale_ex_gst_value = ""
-                            except (decimal.InvalidOperation, TypeError):
-                                sale_ex_gst_value = ""
-                        row_values.append(sale_ex_gst_value)
-                        
-                        # Calculate and add BP_EX_GST = BP / 1.1 (rounded to 2 decimal places)
-                        bp_value = item.get("BP", "")
-                        bp_ex_gst_value = ""
-                        if bp_value:
-                            try:
-                                if isinstance(bp_value, decimal.Decimal):
-                                    bp_ex_gst_decimal = bp_value / decimal.Decimal('1.1')
-                                    # Round to 2 decimal places using ROUND_HALF_UP
-                                    bp_ex_gst_value = bp_ex_gst_decimal.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
-                                else:
-                                    bp_ex_gst_value = ""
-                            except (decimal.InvalidOperation, TypeError):
-                                bp_ex_gst_value = ""
-                        row_values.append(bp_ex_gst_value)
+                    # Apply rounding for decimal fields
+                    if isinstance(value, decimal.Decimal):
+                        try:
+                            value = value.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
+                        except (decimal.InvalidOperation, TypeError):
+                            value = ""
+                            
+                    row_values.append(value)
                         
                 sheet.append(row_values)
                 
@@ -804,7 +752,7 @@ class InventoryService:
             return response
         
         # Process DropshipSales files
-        data_dicts, dropship_month, dropship_year = self._process_dropship_sales_files(txt_files, errors)
+        (dropship_sales_data, dropship_month, dropship_year) = self._process_dropship_sales_files(txt_files, errors)
         if self._handle_errors(errors, response):
             return response
             
@@ -839,7 +787,19 @@ class InventoryService:
         logger.info("Stage 2: Generating and calculating extra data")
         
         # Extract mixed deals for separate processing
-        mixed_deals = self._get_mixed_deals(data_dicts)
+        mixed_deals = self._get_mixed_deals(dropship_sales_data)
+    
+        # Add Per_Unit_Cost to all data sets
+        if mixed_deals:
+            self._add_per_unit_cost(mixed_deals, unit_with_cost)
+        if deals_data:
+            self._add_per_unit_cost(deals_data, unit_with_cost)
+            
+        # Calculate additional fields (COGS, SALE_EX_GST, BP_EX_GST)
+        if mixed_deals:
+            self._calculate_additional_fields(mixed_deals)
+        if deals_data:
+            self._calculate_additional_fields(deals_data)
     
         # =====================================================================
         # STAGE 3: Prepare Excel sheets and write data
@@ -852,17 +812,17 @@ class InventoryService:
             return response
             
         # Write data to Dropship Sales sheet
-        if not self._write_dropship_sales_sheet(new_workbook, data_dicts, errors):
+        if not self._write_dropship_sales_sheet(new_workbook, dropship_sales_data, errors):
             if self._handle_errors(errors, response):
                 return response
             
         # Write mixed deals data to Mixed sheet
-        if not self._write_mixed_sheet(new_workbook, mixed_deals, unit_with_cost, errors):
+        if not self._write_mixed_sheet(new_workbook, mixed_deals, errors):
             if self._handle_errors(errors, response):
                 return response
             
         # Write deals data to Wine sheet
-        if deals_data and not self._write_wine_sheet(new_workbook, deals_data, unit_with_cost, errors):
+        if deals_data and not self._write_wine_sheet(new_workbook, deals_data, errors):
             if self._handle_errors(errors, response):
                 return response
             
