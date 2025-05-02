@@ -261,7 +261,7 @@ class InventoryService:
         Returns:
             List of dictionaries with MIXED deal numbers.
         """
-        mixed_deals = [item for item in data_dicts if str(item.get("DealNo", "")).upper() == "MIXED"]
+        mixed_deals = [item for item in data_dicts if str(item.get("Customer", "")) == "10" and item.get("AX_ProductCode", "").strip() != ""]
         logger.info(f"Found {len(mixed_deals)} rows with MIXED DealNo")
         return mixed_deals
         
