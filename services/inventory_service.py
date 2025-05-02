@@ -61,11 +61,88 @@ class InventoryService:
         "FreightCodeDescription": str
     }
 
+
+
+
     # Note: uom_columns_schema is defined but not fully used in the original code.
     # For mapping, we only need "Item" and "UOM", so we'll define a specific schema for that.
-    uom_mapping_schema = {
+    uom_mapping_import_schema = {
         "Item": str,
         "UOM": decimal.Decimal
+    }
+
+    dropship_sales_export_schema = {
+        "Customer": str,
+        "AX_ProductCode": str,
+        "GST": str,
+        "Units": int,
+        "Price": decimal.Decimal,
+        "Amount": decimal.Decimal,
+        "SaleNo": str,
+        "VendorNo": str,
+        "ItemNo": str,
+        "Description": str,
+        "Serial_No": str,
+        "Vendor_Ref_No": str,
+        "DropShipper": str,
+        "Consignment": str,
+        "DealNo": str,
+        "Column1": str,
+        "BP": decimal.Decimal,
+        "SaleType": str,
+        "FreightCodeDescription": str
+    }
+
+    mixed_export_schema = {
+        "Customer": str,
+        "AX_ProductCode": str,
+        "Per_Unit_Cost": decimal.Decimal,
+        "Units": int,
+        "Price": decimal.Decimal,
+        "Amount": decimal.Decimal,
+        "SaleNo": str,
+        "VendorNo": str,
+        "ItemNo": str,
+        "Description": str,
+        "Serial_No": str,
+        "COGS": decimal.Decimal,
+        "SALE_EX_GST": decimal.Decimal,
+        "BP_EX_GST": decimal.Decimal,
+        "Vendor_Ref_No": str,
+        "DropShipper": str,
+        "Consignment": str,
+        "DealNo": str,
+        "Column1": str,
+        "BP": decimal.Decimal,
+        "SaleType": str,
+        "FreightCodeDescription": str
+    }
+
+    wine_export_schema = {
+        "Customer": str,
+        "AX_ProductCode": str,
+        "Per_Unit_Cost": decimal.Decimal,
+        "Units": int,
+        "Price": decimal.Decimal,
+        "Amount": decimal.Decimal,
+        "SaleNo": str,
+        "VendorNo": str,
+        "ItemNo": str,
+        "Description": str,
+        "Serial_No": str,
+        "COGS": decimal.Decimal,
+        "SALE_EX_GST": decimal.Decimal,
+        "BP_EX_GST": decimal.Decimal,
+        "Vendor_Ref_No": str,
+        "DropShipper": str,
+        "Consignment": str,
+        "DealNo": str,
+        "Column1": str,
+        "BP": decimal.Decimal,
+        "SaleType": str,
+        "DivisionCode": str,
+        "DivisionDescription": str,
+        "FreightCodeDescription": str
     }
 
     def __init__(self):
@@ -569,7 +646,7 @@ class InventoryService:
         """
         logger.info("Loading UOM mapping from CSV")
     
-        rows = self._load_csv_data(csv_file, self.uom_mapping_schema, errors)
+        rows = self._load_csv_data(csv_file, self.uom_mapping_import_schema, errors)
         if len(errors) > 0:
             logger.error(f"Errors loading UOM mapping from {csv_file.name}: {errors}")
             return None
