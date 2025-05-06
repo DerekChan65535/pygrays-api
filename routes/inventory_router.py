@@ -17,19 +17,6 @@ inventory_router = APIRouter(
 )
 
 
-@inventory_router.get("/")
-async def content_html():
-    content = """
-        <body>
-        <form action="/inventory/uploadfiles/" enctype="multipart/form-data" method="post">
-        <input name="files" type="file" multiple>
-        <input type="submit">
-        </form>
-        </body>
-    """
-    return HTMLResponse(content=content)
-
-
 @inventory_router.post("/uploadfiles/")
 @inject
 async def create_upload_files(
