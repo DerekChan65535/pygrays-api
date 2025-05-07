@@ -12,6 +12,23 @@ from services.multi_logging import LoggingService
 
 
 class AgingReportService:
+    # Define the schema for daily data import with types and formats
+    daily_data_import_schema = {
+        "Classification": {"type": "string", "required": True},
+        "Sale_No": {"type": "float", "required": True},
+        "Description": {"type": "string", "required": False},
+        "Division": {"type": "string", "required": True},
+        "BDM": {"type": "string", "required": False},
+        "Sale_Date": {"type": "datetime", "format": "%d/%m/%Y %H:%M", "required": False},
+        "Gross_Tot": {"type": "float", "required": True},
+        "Delot_Ind": {"type": "boolean", "required": False},
+        "Cheque_Date": {"type": "datetime", "format": "%d/%m/%Y %H:%M", "required": False},
+    }
+    
+    # Add the Day0 to Day31 fields dynamically
+    for i in range(32):
+        daily_data_import_schema[f"Day{i}"] = {"type": "float", "required": False}
+
     def __init__(self):
         pass
 
@@ -46,96 +63,111 @@ class AgingReportService:
                 "Month", "Year", "Cheque Date Y/N", "Days Late for Vendors Pmt", "Comments"
             ]
 
-            # Load data file (daily sheet)
-            daily_data_str = data_file.content.decode('utf-8')
-            daily_data_reader = csv.reader(io.StringIO(daily_data_str))
-            daily_data_rows = list(daily_data_reader)
-
-            # Create a new workbook for the daily data
-            daily_wb = openpyxl.Workbook()
-            daily_sheet = daily_wb.active
-
-            # Populate the workbook with data from CSV
-            for row_idx, row in enumerate(daily_data_rows, 1):
-                for col_idx, value in enumerate(row, 1):
-                    daily_sheet.cell(row=row_idx, column=col_idx).value = value
-
-            # Clean data: Remove rows based on conditions
-            rows_to_delete = []
-            for i in range(2, daily_sheet.max_row + 1):
-                cheque_date = daily_sheet.cell(row=i, column=9).value  # Column I
-                gross_tot = daily_sheet.cell(row=i, column=7).value  # Column G
-                description = daily_sheet.cell(row=i, column=3).value  # Column C
-                classification = daily_sheet.cell(row=i, column=1).value  # Column A
-                if cheque_date is not None or gross_tot == 0 or (
-                        description and "Buyer Cancellation Fees" in str(description)):
-                    rows_to_delete.append(i)
-                if classification in ['Total Invoices', 'Total Payments', 'Total Bankings']:
-                    rows_to_delete.append(i)
-
-            for row_idx in sorted(rows_to_delete, reverse=True):
-                daily_sheet.delete_rows(row_idx)
-
-            # Add state to column 42
+            # Check if state is provided
             if not state:
                 return ResponseBase(is_success=False, errors=["State is required"])
 
-            max_row = daily_sheet.max_row
-            for i in range(2, max_row + 1):
-                daily_sheet.cell(row=i, column=42).value = state
-
-            # Create a new template workbook
-            template_wb = openpyxl.Workbook()
-            template_sheet = template_wb.active
-            template_sheet.title = "---DATA---"
-
-            # Create a Tables sheet
-            tables_sheet = template_wb.create_sheet(title="Tables")
-
-            # Load mapping file (tables sheet)
+            # Load data file (daily sheet) using DictReader for direct dictionary creation
+            daily_data_str = data_file.content.decode('utf-8')
+            daily_data_reader = csv.DictReader(io.StringIO(daily_data_str))
+            
+            # Process rows using the import schema
+            daily_data = []
+            for row_dict in daily_data_reader:
+                # Apply schema-based conversions
+                converted_row = {}
+                for field, value in row_dict.items():
+                    # Skip if field is not in schema
+                    if field not in self.daily_data_import_schema:
+                        converted_row[field] = value
+                        continue
+                    
+                    field_schema = self.daily_data_import_schema[field]
+                    
+                    # Skip empty values unless required
+                    if not value and not field_schema.get("required", False):
+                        converted_row[field] = None
+                        continue
+                    
+                    field_type = field_schema.get("type")
+                    try:
+                        # Convert based on field type
+                        if field_type == "datetime" and value:
+                            date_format = field_schema.get("format", "%Y-%m-%d")
+                            converted_row[field] = datetime.strptime(value, date_format)
+                        elif field_type == "float" and value:
+                            converted_row[field] = float(value)
+                        elif field_type == "integer" and value:
+                            converted_row[field] = int(value)
+                        elif field_type == "boolean":
+                            # Handle various boolean string representations
+                            if isinstance(value, str):
+                                converted_row[field] = value.upper() in ["TRUE", "YES", "Y", "1"]
+                            else:
+                                converted_row[field] = bool(value)
+                        else:
+                            # Default: keep as string or original value
+                            converted_row[field] = value
+                    except (ValueError, TypeError) as e:
+                        # If conversion fails, keep original value and continue
+                        converted_row[field] = value
+                
+                daily_data.append(converted_row)
+            
+            # Clean data: Filter out rows based on conditions
+            filtered_daily_data = []
+            for row_dict in daily_data:
+                cheque_date = row_dict.get('Cheque_Date')
+                gross_tot = row_dict.get('Gross_Tot')
+                description = row_dict.get('Description')
+                classification = row_dict.get('Classification')
+                
+                # Skip rows that meet exclusion criteria
+                if (cheque_date is not None or 
+                    gross_tot == 0 or 
+                    (description and "Buyer Cancellation Fees" in str(description)) or
+                    classification in ['Total Invoices', 'Total Payments', 'Total Bankings']):
+                    continue
+                
+                # Add state to the row
+                row_dict['State'] = state
+                filtered_daily_data.append(row_dict)
+            
+            # Load mapping file (tables sheet) using DictReader
             tables_data_str = mapping_file.content.decode('utf-8')
-            tables_data_reader = csv.reader(io.StringIO(tables_data_str))
-            tables_data_rows = list(tables_data_reader)
-
-            # Populate the Tables sheet
-            for row_idx, row in enumerate(tables_data_rows, 1):
-                for col_idx, value in enumerate(row, 1):
-                    tables_sheet.cell(row=row_idx, column=col_idx).value = value
-
-            # Add headers to template sheet
-            for i, header in enumerate(headers, 1):
-                template_sheet.cell(row=1, column=i).value = header
-
+            tables_data_reader = csv.DictReader(io.StringIO(tables_data_str))
+            
             # Create lookup dictionaries from Tables
             division_to_subdivision = {}
             divisionno_to_division = {}
             state_division_to_days = {}
-
-            for row in tables_sheet.iter_rows(min_row=2):
-                division = row[0].value
-                sub_division = row[1].value
-                division_no = row[3].value
-                division_type = row[4].value
-                division_name = row[6].value
-                state_val = row[7].value
-                state_division_name = row[8].value
-                days = row[9].value
+            
+            for row in tables_data_reader:
+                # Access fields by column names instead of indices
+                division = row.get('Division', '')
+                sub_division = row.get('Sub Division', '')
+                division_no = row.get('Division No', '')
+                division_type = row.get('Division Type', '')
+                state_val = row.get('State', '')
+                state_division_name = row.get('State-Division Name', '')
+                
+                # Convert days to integer if possible
+                days = row.get('Days', '')
+                try:
+                    days = int(days) if days else ""
+                except (ValueError, TypeError):
+                    pass
+                
                 if division and sub_division:
                     division_to_subdivision[division] = sub_division
                 if division_no and division_type:
                     divisionno_to_division[division_no] = division_type
                 if state_division_name and days:
                     state_division_to_days[state_division_name] = days
-
-            # Convert daily data to list of dicts
-            daily_data = []
-            for row in daily_sheet.iter_rows(min_row=2, max_col=42):
-                row_dict = {headers[i]: cell.value for i, cell in enumerate(row)}
-                daily_data.append(row_dict)
-
+            
             # Process each row and compute new columns
             new_rows = []
-            for row_dict in daily_data:
+            for row_dict in filtered_daily_data:
                 new_row = row_dict.copy()
                 if not row_dict.get('Classification'):
                     new_rows.append(new_row)
@@ -246,6 +278,23 @@ class AgingReportService:
                     new_row['Days Late for Vendors Pmt'] = ""
 
                 new_rows.append(new_row)
+
+            # Create the output workbook here (end of method)
+            template_wb = openpyxl.Workbook()
+            template_sheet = template_wb.active
+            template_sheet.title = "---DATA---"
+            
+            # Create a Tables sheet
+            tables_sheet = template_wb.create_sheet(title="Tables")
+            
+            # Populate the Tables sheet with original mapping data
+            for row_idx, row in enumerate(tables_data_rows, 1):
+                for col_idx, value in enumerate(row, 1):
+                    tables_sheet.cell(row=row_idx, column=col_idx).value = value
+            
+            # Add headers to template sheet
+            for i, header in enumerate(headers, 1):
+                template_sheet.cell(row=1, column=i).value = header
 
             # Append new rows to template
             for row_dict in new_rows:
