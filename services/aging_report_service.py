@@ -23,6 +23,38 @@ class AgingReportService:
         "Gross_Tot": {"type": "float", "required": True},
         "Delot_Ind": {"type": "boolean", "required": False},
         "Cheque_Date": {"type": "datetime", "formats": ["%d/%m/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y"], "required": False},
+        "Day0": {"type": "float", "required": False},
+        "Day1": {"type": "float", "required": False},
+        "Day2": {"type": "float", "required": False},
+        "Day3": {"type": "float", "required": False},
+        "Day4": {"type": "float", "required": False},
+        "Day5": {"type": "float", "required": False},
+        "Day6": {"type": "float", "required": False},
+        "Day7": {"type": "float", "required": False},
+        "Day8": {"type": "float", "required": False},
+        "Day9": {"type": "float", "required": False},
+        "Day10": {"type": "float", "required": False},
+        "Day11": {"type": "float", "required": False},
+        "Day12": {"type": "float", "required": False},
+        "Day13": {"type": "float", "required": False},
+        "Day14": {"type": "float", "required": False},
+        "Day15": {"type": "float", "required": False},
+        "Day16": {"type": "float", "required": False},
+        "Day17": {"type": "float", "required": False},
+        "Day18": {"type": "float", "required": False},
+        "Day19": {"type": "float", "required": False},
+        "Day20": {"type": "float", "required": False},
+        "Day21": {"type": "float", "required": False},
+        "Day22": {"type": "float", "required": False},
+        "Day23": {"type": "float", "required": False},
+        "Day24": {"type": "float", "required": False},
+        "Day25": {"type": "float", "required": False},
+        "Day26": {"type": "float", "required": False},
+        "Day27": {"type": "float", "required": False},
+        "Day28": {"type": "float", "required": False},
+        "Day29": {"type": "float", "required": False},
+        "Day30": {"type": "float", "required": False},
+        "Day31": {"type": "float", "required": False},
     }
     
     @staticmethod
@@ -53,10 +85,6 @@ class AgingReportService:
                 
         # If all formats fail, return None
         return None
-    
-    # Add the Day0 to Day31 fields dynamically
-    for i in range(32):
-        daily_data_import_schema[f"Day{i}"] = {"type": "float", "required": False}
 
     def __init__(self):
         pass
