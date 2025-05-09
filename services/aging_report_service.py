@@ -16,18 +16,14 @@ from services.multi_logging import LoggingService, LogConfig
 
 
 # Initialize logger with detailed configuration
-log_config = LogConfig(
-    level=logging.DEBUG,
-    fmt="%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
-    log_to_console=True
-)
-logger = LoggingService(log_config).get_logger(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class AgingReportService:
     # Define the schema for daily data import with types and formats
     daily_data_import_schema = {
-        "Classification": {"type": "string", "required": True},
+        "Classification": {"type": "string", "required": False},
         "Sale_No": {"type": "string", "required": True},
         "Description": {"type": "string", "required": False},
         "Division": {"type": "string", "required": True},
