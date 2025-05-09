@@ -15,15 +15,44 @@ class AgingReportService:
     # Define the schema for daily data import with types and formats
     daily_data_import_schema = {
         "Classification": {"type": "string", "required": True},
-        "Sale_No": {"type": "float", "required": True},
+        "Sale_No": {"type": "string", "required": True},
         "Description": {"type": "string", "required": False},
         "Division": {"type": "string", "required": True},
         "BDM": {"type": "string", "required": False},
-        "Sale_Date": {"type": "datetime", "format": "%d/%m/%Y %H:%M", "required": False},
+        "Sale_Date": {"type": "datetime", "formats": ["%d/%m/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y"], "required": False},
         "Gross_Tot": {"type": "float", "required": True},
         "Delot_Ind": {"type": "boolean", "required": False},
-        "Cheque_Date": {"type": "datetime", "format": "%d/%m/%Y %H:%M", "required": False},
+        "Cheque_Date": {"type": "datetime", "formats": ["%d/%m/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y"], "required": False},
     }
+    
+    @staticmethod
+    def parse_date_with_formats(date_string: str, formats: list) -> datetime:
+        """
+        Try parsing a date string using multiple formats
+        
+        Args:
+            date_string: The date string to parse
+            formats: List of format strings to try
+            
+        Returns:
+            Parsed datetime object or None if parsing fails
+        """
+        if not date_string:
+            return None
+            
+        # Ensure formats is a list
+        if isinstance(formats, str):
+            formats = [formats]
+            
+        # Try each format
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_string, fmt)
+            except ValueError:
+                continue
+                
+        # If all formats fail, return None
+        return None
     
     # Add the Day0 to Day31 fields dynamically
     for i in range(32):
@@ -32,19 +61,21 @@ class AgingReportService:
     def __init__(self):
         pass
 
-    async def process_uploaded_file(self, state: str, mapping_file: FileModel, data_file: FileModel) -> ResponseBase:
+    async def process_uploaded_file(self, state: str, mapping_file: 'FileModel',
+                                    data_file: 'FileModel') -> 'ResponseBase':
+
         """
-        Processes a daily Sales Aged Balance report, computes values for columns 43 to 55,
-        and returns a FileModel with the processed data.
-        
-        Args:
-            state: The state code to use for processing
-            mapping_file: CSV file containing mapping tables
-            data_file: CSV file containing daily sales data
-            
-        Returns:
-            ResponseBase object with success status and FileModel data
-        """
+                Processes a daily Sales Aged Balance report, computes values for columns 43 to 55,
+                and returns a FileModel with the processed data.
+
+                Args:
+                    state: The state code to use for processing
+                    mapping_file: CSV file containing mapping tables
+                    data_file: CSV file containing daily sales data
+
+                Returns:
+                    ResponseBase object with success status and FileModel data
+                """
         try:
             start_time = time.time()
             today = datetime.today()
@@ -78,7 +109,7 @@ class AgingReportService:
                 converted_row = {}
                 for field, value in row_dict.items():
                     # Skip if field is not in schema
-                    if field not in self.daily_data_import_schema:
+                    if field not in self.daily_data_import_schema.keys():
                         converted_row[field] = value
                         continue
                     
@@ -93,8 +124,11 @@ class AgingReportService:
                     try:
                         # Convert based on field type
                         if field_type == "datetime" and value:
-                            date_format = field_schema.get("format", "%Y-%m-%d")
-                            converted_row[field] = datetime.strptime(value, date_format)
+                            # Use the helper method for date parsing
+                            date_formats = field_schema.get("formats", ["%Y-%m-%d"])
+                            parsed_date = self.parse_date_with_formats(value, date_formats)
+                            converted_row[field] = parsed_date if parsed_date else value
+                                
                         elif field_type == "float" and value:
                             converted_row[field] = float(value)
                         elif field_type == "integer" and value:
