@@ -198,10 +198,14 @@ class AgingReportService:
                 logger.info(f"Processing file {file_idx}/{file_count}: {data_file.name}")
                 
                 # Extract state from filename using regex pattern
-                # Expected format: "Sales Aged Balance [state].csv"
-                state_match = re.search(r'Sales Aged Balance (\w+)\.csv', data_file.name)
+                # Multiple supported formats:
+                # 1. "Sales Aged Balance [state].csv" (space-separated)
+                # 2. "SalesAgedBalance[state].csv" (camel case)
+                # 3. "Sales_Aged_Balance_[state].csv" (underscore-separated)
+                state_match = re.search(r'(?:Sales[ _]?Aged[ _]?Balance[ _]?|SalesAgedBalance)(\w+)\.csv', data_file.name, re.IGNORECASE)
                 if not state_match:
-                    error_msg = f"Unable to extract state from filename: {data_file.name}. Expected format: 'Sales Aged Balance [state].csv'"
+                    error_msg = (f"Unable to extract state from filename: {data_file.name}. Expected formats: "
+                                f"'Sales Aged Balance [state].csv', 'SalesAgedBalance[state].csv', or 'Sales_Aged_Balance_[state].csv'")
                     errors.append(error_msg)
                     logger.error(error_msg)
                     logger.warning(f"Skipping file {data_file.name} due to invalid filename format")
