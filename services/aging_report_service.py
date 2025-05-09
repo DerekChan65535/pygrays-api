@@ -1,7 +1,9 @@
 import io
 import csv
 import time
+import logging
 from datetime import datetime, timedelta
+from typing import List
 
 import openpyxl
 from fastapi import UploadFile, HTTPException
@@ -9,6 +11,10 @@ from fastapi import UploadFile, HTTPException
 from models.file_model import FileModel
 from models.response_base import ResponseBase
 from services.multi_logging import LoggingService
+
+
+# Initialize logger
+logger = LoggingService().get_logger(__name__)
 
 
 class AgingReportService:
@@ -89,6 +95,23 @@ class AgingReportService:
     def __init__(self):
         pass
 
+    def _handle_errors(self, errors: List[str], response: ResponseBase) -> bool:
+        """
+        Helper method to check for errors and update the response accordingly.
+        
+        Args:
+            errors: List of error messages to check.
+            response: Response object to update if errors exist.
+            
+        Returns:
+            True if errors exist, False otherwise.
+        """
+        if len(errors) > 0:
+            response.errors.extend(errors)
+            response.is_success = False
+            return True
+        return False
+    
     async def process_uploaded_file(self, state: str, mapping_file: 'FileModel',
                                     data_file: 'FileModel') -> 'ResponseBase':
 
@@ -104,11 +127,14 @@ class AgingReportService:
                 Returns:
                     ResponseBase object with success status and FileModel data
                 """
+        start_time = time.time()
+        errors = []
+        response = ResponseBase(is_success=True)
+        
         try:
-            start_time = time.time()
             today = datetime.today()
             date_str = today.strftime("%Y%m%d")
-
+    
             # Headers for template sheet
             headers = [
                 "Classification", "Sale_No", "Description", "Division", "BDM", "Sale_Date",
@@ -121,10 +147,14 @@ class AgingReportService:
                 "Gross Amount", "Collected", "To be Collected", "Payable to Vendor",
                 "Month", "Year", "Cheque Date Y/N", "Days Late for Vendors Pmt", "Comments"
             ]
-
+    
             # Check if state is provided
             if not state:
-                return ResponseBase(is_success=False, errors=["State is required"])
+                error_msg = "State is required"
+                errors.append(error_msg)
+                logger.error(error_msg)
+                self._handle_errors(errors, response)
+                return response
 
             # Load data file (daily sheet) using DictReader for direct dictionary creation
             daily_data_str = data_file.content.decode('utf-8')
@@ -350,6 +380,11 @@ class AgingReportService:
             tables_sheet = template_wb.create_sheet(title="Tables")
             
             # Populate the Tables sheet with original mapping data
+            # Convert mapping file back to rows for the Tables sheet
+            tables_data_str = mapping_file.content.decode('utf-8')
+            tables_data_csv = csv.reader(io.StringIO(tables_data_str))
+            tables_data_rows = list(tables_data_csv)
+            
             for row_idx, row in enumerate(tables_data_rows, 1):
                 for col_idx, value in enumerate(row, 1):
                     tables_sheet.cell(row=row_idx, column=col_idx).value = value
@@ -371,14 +406,15 @@ class AgingReportService:
             # Create a descriptive file name
             file_name = f"Sales_Aged_Balance_Report_{date_str}.xlsx"
 
-            # Return the FileModel wrapped in a ResponseBase
-            return ResponseBase(
-                is_success=True,
-                data=FileModel(name=file_name, content=output.getvalue())
-            )
+            # Set the data in the response object
+            response.data = FileModel(name=file_name, content=output.getvalue())
+            return response
 
         except Exception as e:
             # Log the error and return error response
             end_time = time.time() - start_time
             error_message = f"Error processing file: {str(e)}"
-            return ResponseBase(is_success=False, errors=[error_message])
+            logger.error(error_message, exc_info=True)
+            errors.append(error_message)
+            self._handle_errors(errors, response)
+            return response
