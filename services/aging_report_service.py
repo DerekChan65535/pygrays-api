@@ -112,17 +112,16 @@ class AgingReportService:
             return True
         return False
     
-    async def process_uploaded_file(self, state: str, mapping_file: 'FileModel',
-                                    data_file: 'FileModel') -> 'ResponseBase':
-
+    async def process_uploaded_file(self, mapping_file: 'FileModel',
+                                    data_files: List['FileModel']) -> 'ResponseBase':
+    
         """
-                Processes a daily Sales Aged Balance report, computes values for columns 43 to 55,
-                and returns a FileModel with the processed data.
-
+                Processes multiple daily Sales Aged Balance reports, computes values for columns 43 to 55,
+                and returns a FileModel with the combined processed data.
+    
                 Args:
-                    state: The state code to use for processing
                     mapping_file: CSV file containing mapping tables
-                    data_file: CSV file containing daily sales data
+                    data_files: List of CSV files containing daily sales data with state info in filenames
 
                 Returns:
                     ResponseBase object with success status and FileModel data
@@ -135,6 +134,8 @@ class AgingReportService:
             today = datetime.today()
             date_str = today.strftime("%Y%m%d")
     
+            import re
+            
             # Headers for template sheet
             headers = [
                 "Classification", "Sale_No", "Description", "Division", "BDM", "Sale_Date",
@@ -147,83 +148,100 @@ class AgingReportService:
                 "Gross Amount", "Collected", "To be Collected", "Payable to Vendor",
                 "Month", "Year", "Cheque Date Y/N", "Days Late for Vendors Pmt", "Comments"
             ]
-    
-            # Check if state is provided
-            if not state:
-                error_msg = "State is required"
+            
+            # Check if data files are provided
+            if not data_files or len(data_files) == 0:
+                error_msg = "No data files provided"
                 errors.append(error_msg)
                 logger.error(error_msg)
                 self._handle_errors(errors, response)
                 return response
-
-            # Load data file (daily sheet) using DictReader for direct dictionary creation
-            daily_data_str = data_file.content.decode('utf-8')
-            daily_data_reader = csv.DictReader(io.StringIO(daily_data_str))
-            
-            # Process rows using the import schema
-            daily_data = []
-            for row_dict in daily_data_reader:
-                # Apply schema-based conversions
-                converted_row = {}
-                for field, value in row_dict.items():
-                    # Skip if field is not in schema
-                    if field not in self.daily_data_import_schema.keys():
-                        converted_row[field] = value
-                        continue
-                    
-                    field_schema = self.daily_data_import_schema[field]
-                    
-                    # Skip empty values unless required
-                    if not value and not field_schema.get("required", False):
-                        converted_row[field] = None
-                        continue
-                    
-                    field_type = field_schema.get("type")
-                    try:
-                        # Convert based on field type
-                        if field_type == "datetime" and value:
-                            # Use the helper method for date parsing
-                            date_formats = field_schema.get("formats", ["%Y-%m-%d"])
-                            parsed_date = self.parse_date_with_formats(value, date_formats)
-                            converted_row[field] = parsed_date if parsed_date else value
-                                
-                        elif field_type == "float" and value:
-                            converted_row[field] = float(value)
-                        elif field_type == "integer" and value:
-                            converted_row[field] = int(value)
-                        elif field_type == "boolean":
-                            # Handle various boolean string representations
-                            if isinstance(value, str):
-                                converted_row[field] = value.upper() in ["TRUE", "YES", "Y", "1"]
-                            else:
-                                converted_row[field] = bool(value)
-                        else:
-                            # Default: keep as string or original value
-                            converted_row[field] = value
-                    except (ValueError, TypeError) as e:
-                        # If conversion fails, keep original value and continue
-                        converted_row[field] = value
-                
-                daily_data.append(converted_row)
-            
-            # Clean data: Filter out rows based on conditions
-            filtered_daily_data = []
-            for row_dict in daily_data:
-                cheque_date = row_dict.get('Cheque_Date')
-                gross_tot = row_dict.get('Gross_Tot')
-                description = row_dict.get('Description')
-                classification = row_dict.get('Classification')
-                
-                # Skip rows that meet exclusion criteria
-                if (cheque_date is not None or 
-                    gross_tot == 0 or 
-                    (description and "Buyer Cancellation Fees" in str(description)) or
-                    classification in ['Total Invoices', 'Total Payments', 'Total Bankings']):
+        
+            # Combined processed data from all files
+            all_processed_data = []
+        
+            # Process each data file
+            for data_file in data_files:
+                # Extract state from filename using regex pattern
+                # Expected format: "Sales Aged Balance [state].csv"
+                state_match = re.search(r'Sales Aged Balance (\w+)\.csv', data_file.name)
+                if not state_match:
+                    error_msg = f"Unable to extract state from filename: {data_file.name}. Expected format: 'Sales Aged Balance [state].csv'"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
                     continue
+        
+                state = state_match.group(1).lower()  # Convert to lowercase for consistency
+                logger.info(f"Processing file for state: {state}")
+        
+                # Load data file (daily sheet) using DictReader for direct dictionary creation
+                daily_data_str = data_file.content.decode('utf-8')
+                daily_data_reader = csv.DictReader(io.StringIO(daily_data_str))
                 
-                # Add state to the row
-                row_dict['State'] = state
-                filtered_daily_data.append(row_dict)
+                # Process rows using the import schema
+                daily_data = []
+                for row_dict in daily_data_reader:
+                    # Apply schema-based conversions
+                    converted_row = {}
+                    for field, value in row_dict.items():
+                        # Skip if field is not in schema
+                        if field not in self.daily_data_import_schema.keys():
+                            converted_row[field] = value
+                            continue
+                        
+                        field_schema = self.daily_data_import_schema[field]
+                        
+                        # Skip empty values unless required
+                        if not value and not field_schema.get("required", False):
+                            converted_row[field] = None
+                            continue
+                        
+                        field_type = field_schema.get("type")
+                        try:
+                            # Convert based on field type
+                            if field_type == "datetime" and value:
+                                # Use the helper method for date parsing
+                                date_formats = field_schema.get("formats", ["%Y-%m-%d"])
+                                parsed_date = self.parse_date_with_formats(value, date_formats)
+                                converted_row[field] = parsed_date if parsed_date else value
+                                    
+                            elif field_type == "float" and value:
+                                converted_row[field] = float(value)
+                            elif field_type == "integer" and value:
+                                converted_row[field] = int(value)
+                            elif field_type == "boolean":
+                                # Handle various boolean string representations
+                                if isinstance(value, str):
+                                    converted_row[field] = value.upper() in ["TRUE", "YES", "Y", "1"]
+                                else:
+                                    converted_row[field] = bool(value)
+                            else:
+                                # Default: keep as string or original value
+                                converted_row[field] = value
+                        except (ValueError, TypeError) as e:
+                            # If conversion fails, keep original value and continue
+                            converted_row[field] = value
+                    
+                    daily_data.append(converted_row)
+                
+                # Clean data: Filter out rows based on conditions
+                filtered_daily_data = []
+                for row_dict in daily_data:
+                    cheque_date = row_dict.get('Cheque_Date')
+                    gross_tot = row_dict.get('Gross_Tot')
+                    description = row_dict.get('Description')
+                    classification = row_dict.get('Classification')
+                    
+                    # Skip rows that meet exclusion criteria
+                    if (cheque_date is not None or 
+                        gross_tot == 0 or 
+                        (description and "Buyer Cancellation Fees" in str(description)) or
+                        classification in ['Total Invoices', 'Total Payments', 'Total Bankings']):
+                        continue
+                    
+                    # Add state to the row
+                    row_dict['State'] = state
+                    filtered_daily_data.append(row_dict)
             
             # Load mapping file (tables sheet) using DictReader
             tables_data_str = mapping_file.content.decode('utf-8')
@@ -371,6 +389,9 @@ class AgingReportService:
 
                 new_rows.append(new_row)
 
+            # Add processed rows to the combined result
+            all_processed_data.extend(new_rows)
+            
             # Create the output workbook here (end of method)
             template_wb = openpyxl.Workbook()
             template_sheet = template_wb.active
@@ -392,9 +413,9 @@ class AgingReportService:
             # Add headers to template sheet
             for i, header in enumerate(headers, 1):
                 template_sheet.cell(row=1, column=i).value = header
-
-            # Append new rows to template
-            for row_dict in new_rows:
+            
+            # Append all processed rows to template
+            for row_dict in all_processed_data:
                 row_values = [row_dict.get(header, None) for header in headers]
                 template_sheet.append(row_values)
 
