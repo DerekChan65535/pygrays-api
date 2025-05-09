@@ -2,19 +2,26 @@ import io
 import csv
 import time
 import logging
+import sys
+import traceback
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 
 import openpyxl
 from fastapi import UploadFile, HTTPException
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
-from services.multi_logging import LoggingService
+from services.multi_logging import LoggingService, LogConfig
 
 
-# Initialize logger
-logger = LoggingService().get_logger(__name__)
+# Initialize logger with detailed configuration
+log_config = LogConfig(
+    level=logging.DEBUG,
+    fmt="%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
+    log_to_console=True
+)
+logger = LoggingService(log_config).get_logger(__name__)
 
 
 class AgingReportService:
@@ -76,20 +83,26 @@ class AgingReportService:
             Parsed datetime object or None if parsing fails
         """
         if not date_string:
+            logger.debug(f"Empty date string provided, returning None")
             return None
             
         # Ensure formats is a list
         if isinstance(formats, str):
+            logger.debug(f"Converting single format '{formats}' to list")
             formats = [formats]
             
         # Try each format
         for fmt in formats:
             try:
-                return datetime.strptime(date_string, fmt)
+                parsed_date = datetime.strptime(date_string, fmt)
+                logger.debug(f"Successfully parsed date '{date_string}' with format '{fmt}'")
+                return parsed_date
             except ValueError:
+                logger.debug(f"Failed to parse date '{date_string}' with format '{fmt}'")
                 continue
                 
         # If all formats fail, return None
+        logger.warning(f"Failed to parse date '{date_string}' with any provided formats: {formats}")
         return None
 
     def __init__(self):
@@ -107,9 +120,13 @@ class AgingReportService:
             True if errors exist, False otherwise.
         """
         if len(errors) > 0:
+            logger.warning(f"Handling {len(errors)} errors in response")
+            for idx, err in enumerate(errors):
+                logger.error(f"Error {idx+1}: {err}")
             response.errors.extend(errors)
             response.is_success = False
             return True
+        logger.debug("No errors to handle in response")
         return False
     
     async def process_uploaded_file(self, mapping_file: 'FileModel',
@@ -126,15 +143,25 @@ class AgingReportService:
                 Returns:
                     ResponseBase object with success status and FileModel data
                 """
-        start_time = time.time()
+        method_start_time = time.time()
+        logger.info("=== Starting process_uploaded_file ===")
+        logger.info(f"Received mapping file: {mapping_file.name} ({len(mapping_file.content)} bytes)")
+        logger.info(f"Received {len(data_files)} data files")
+        
+        # Log data file names
+        for idx, file in enumerate(data_files):
+            logger.info(f"Data file {idx+1}: {file.name} ({len(file.content)} bytes)")
+            
         errors = []
         response = ResponseBase(is_success=True)
         
         try:
             today = datetime.today()
             date_str = today.strftime("%Y%m%d")
+            logger.debug(f"Processing date: {today}, formatted as {date_str}")
     
             import re
+            logger.debug("Imported re module for regex operations")
             
             # Headers for template sheet
             headers = [
@@ -154,14 +181,22 @@ class AgingReportService:
                 error_msg = "No data files provided"
                 errors.append(error_msg)
                 logger.error(error_msg)
+                logger.info("Terminating processing due to missing data files")
                 self._handle_errors(errors, response)
                 return response
-        
+                    
             # Combined processed data from all files
             all_processed_data = []
-        
+            logger.debug("Initialized empty list for all_processed_data")
+                    
             # Process each data file
-            for data_file in data_files:
+            file_count = len(data_files)
+            logger.info(f"Beginning processing of {file_count} data files")
+            
+            for file_idx, data_file in enumerate(data_files, 1):
+                file_start_time = time.time()
+                logger.info(f"Processing file {file_idx}/{file_count}: {data_file.name}")
+                
                 # Extract state from filename using regex pattern
                 # Expected format: "Sales Aged Balance [state].csv"
                 state_match = re.search(r'Sales Aged Balance (\w+)\.csv', data_file.name)
@@ -169,23 +204,44 @@ class AgingReportService:
                     error_msg = f"Unable to extract state from filename: {data_file.name}. Expected format: 'Sales Aged Balance [state].csv'"
                     errors.append(error_msg)
                     logger.error(error_msg)
+                    logger.warning(f"Skipping file {data_file.name} due to invalid filename format")
                     continue
-        
+                    
                 state = state_match.group(1).lower()  # Convert to lowercase for consistency
-                logger.info(f"Processing file for state: {state}")
+                logger.info(f"Extracted state '{state}' from filename {data_file.name}")
         
                 # Load data file (daily sheet) using DictReader for direct dictionary creation
-                daily_data_str = data_file.content.decode('utf-8')
-                daily_data_reader = csv.DictReader(io.StringIO(daily_data_str))
+                logger.debug(f"Decoding content of {data_file.name}")
+                try:
+                    daily_data_str = data_file.content.decode('utf-8')
+                    logger.debug(f"Successfully decoded file content ({len(daily_data_str)} characters)")
+                    daily_data_reader = csv.DictReader(io.StringIO(daily_data_str))
+                    logger.debug(f"Created CSV DictReader for file {data_file.name}")
+                except Exception as decode_error:
+                    error_msg = f"Error decoding file {data_file.name}: {str(decode_error)}"
+                    logger.error(error_msg, exc_info=True)
+                    errors.append(error_msg)
+                    continue
                 
                 # Process rows using the import schema
                 daily_data = []
+                row_count = 0
+                conversion_errors = 0
+                
+                logger.info(f"Beginning row processing for {data_file.name}")
                 for row_dict in daily_data_reader:
+                    row_count += 1
+                    if row_count % 100 == 0:
+                        logger.debug(f"Processed {row_count} rows from {data_file.name}")
+                    
                     # Apply schema-based conversions
                     converted_row = {}
+                    row_errors = 0
+                    
                     for field, value in row_dict.items():
                         # Skip if field is not in schema
                         if field not in self.daily_data_import_schema.keys():
+                            logger.debug(f"Field '{field}' not in schema, keeping original value: {value}")
                             converted_row[field] = value
                             continue
                         
@@ -195,6 +251,9 @@ class AgingReportService:
                         if not value and not field_schema.get("required", False):
                             converted_row[field] = None
                             continue
+                        elif not value and field_schema.get("required", False):
+                            logger.warning(f"Missing required field '{field}' in row {row_count}")
+                            row_errors += 1
                         
                         field_type = field_schema.get("type")
                         try:
@@ -204,55 +263,114 @@ class AgingReportService:
                                 date_formats = field_schema.get("formats", ["%Y-%m-%d"])
                                 parsed_date = self.parse_date_with_formats(value, date_formats)
                                 converted_row[field] = parsed_date if parsed_date else value
+                                if parsed_date is None:
+                                    logger.warning(f"Could not parse date '{value}' for field '{field}' in row {row_count}")
+                                    row_errors += 1
                                     
                             elif field_type == "float" and value:
                                 converted_row[field] = float(value)
+                                logger.debug(f"Converted '{field}' value '{value}' to float: {converted_row[field]}")
                             elif field_type == "integer" and value:
                                 converted_row[field] = int(value)
+                                logger.debug(f"Converted '{field}' value '{value}' to integer: {converted_row[field]}")
                             elif field_type == "boolean":
                                 # Handle various boolean string representations
                                 if isinstance(value, str):
                                     converted_row[field] = value.upper() in ["TRUE", "YES", "Y", "1"]
                                 else:
                                     converted_row[field] = bool(value)
+                                logger.debug(f"Converted '{field}' value '{value}' to boolean: {converted_row[field]}")
                             else:
                                 # Default: keep as string or original value
                                 converted_row[field] = value
                         except (ValueError, TypeError) as e:
                             # If conversion fails, keep original value and continue
+                            logger.warning(f"Failed to convert field '{field}' with value '{value}' to {field_type}: {str(e)}")
                             converted_row[field] = value
+                            row_errors += 1
+                    
+                    if row_errors > 0:
+                        conversion_errors += 1
+                        logger.debug(f"Row {row_count} had {row_errors} conversion errors")
                     
                     daily_data.append(converted_row)
                 
+                logger.info(f"Completed processing {row_count} rows from {data_file.name}")
+                logger.info(f"Found {conversion_errors} rows with conversion errors")
+                
                 # Clean data: Filter out rows based on conditions
+                logger.info(f"Filtering data for {data_file.name}, starting with {len(daily_data)} rows")
                 filtered_daily_data = []
-                for row_dict in daily_data:
+                excluded_count = {
+                    "cheque_date": 0,
+                    "zero_gross": 0,
+                    "cancellation": 0,
+                    "totals": 0
+                }
+                
+                for row_idx, row_dict in enumerate(daily_data):
                     cheque_date = row_dict.get('Cheque_Date')
                     gross_tot = row_dict.get('Gross_Tot')
                     description = row_dict.get('Description')
                     classification = row_dict.get('Classification')
                     
+                    # Log detailed info for every 100th row as an example
+                    if row_idx % 100 == 0:
+                        logger.debug(f"Filtering row {row_idx}: Cheque_Date={cheque_date}, "
+                                    f"Gross_Tot={gross_tot}, Classification={classification}")
+                    
                     # Skip rows that meet exclusion criteria
-                    if (cheque_date is not None or 
-                        gross_tot == 0 or 
-                        (description and "Buyer Cancellation Fees" in str(description)) or
-                        classification in ['Total Invoices', 'Total Payments', 'Total Bankings']):
+                    if cheque_date is not None:
+                        excluded_count["cheque_date"] += 1
+                        logger.debug(f"Excluding row {row_idx}: Non-null Cheque_Date={cheque_date}")
+                        continue
+                    if gross_tot == 0:
+                        excluded_count["zero_gross"] += 1
+                        logger.debug(f"Excluding row {row_idx}: Zero Gross_Tot")
+                        continue
+                    if description and "Buyer Cancellation Fees" in str(description):
+                        excluded_count["cancellation"] += 1
+                        logger.debug(f"Excluding row {row_idx}: Buyer Cancellation Fees in description")
+                        continue
+                    if classification in ['Total Invoices', 'Total Payments', 'Total Bankings']:
+                        excluded_count["totals"] += 1
+                        logger.debug(f"Excluding row {row_idx}: Classification is '{classification}'")
                         continue
                     
                     # Add state to the row
                     row_dict['State'] = state
                     filtered_daily_data.append(row_dict)
+                
+                logger.info(f"Filtering complete. Kept {len(filtered_daily_data)} rows, excluded {len(daily_data) - len(filtered_daily_data)} rows")
+                logger.info(f"Exclusion breakdown: {excluded_count}")
             
             # Load mapping file (tables sheet) using DictReader
-            tables_data_str = mapping_file.content.decode('utf-8')
-            tables_data_reader = csv.DictReader(io.StringIO(tables_data_str))
+            logger.info(f"Processing mapping file: {mapping_file.name}")
+            
+            try:
+                tables_data_str = mapping_file.content.decode('utf-8')
+                logger.debug(f"Successfully decoded mapping file content ({len(tables_data_str)} characters)")
+                tables_data_reader = csv.DictReader(io.StringIO(tables_data_str))
+                logger.debug(f"Created CSV DictReader for mapping file")
+            except Exception as decode_error:
+                error_msg = f"Error decoding mapping file {mapping_file.name}: {str(decode_error)}"
+                logger.error(error_msg, exc_info=True)
+                errors.append(error_msg)
+                self._handle_errors(errors, response)
+                return response
             
             # Create lookup dictionaries from Tables
             division_to_subdivision = {}
             divisionno_to_division = {}
             state_division_to_days = {}
             
+            mapping_row_count = 0
+            mapping_errors = 0
+            
+            logger.info("Building lookup dictionaries from mapping file")
             for row in tables_data_reader:
+                mapping_row_count += 1
+                
                 # Access fields by column names instead of indices
                 division = row.get('Division', '')
                 sub_division = row.get('Sub Division', '')
@@ -261,19 +379,41 @@ class AgingReportService:
                 state_val = row.get('State', '')
                 state_division_name = row.get('State-Division Name', '')
                 
+                # Log every 10th row as a sample
+                if mapping_row_count % 10 == 0:
+                    logger.debug(f"Mapping row {mapping_row_count}: Division={division}, "
+                               f"Sub Division={sub_division}, Division No={division_no}")
+                
                 # Convert days to integer if possible
                 days = row.get('Days', '')
                 try:
                     days = int(days) if days else ""
-                except (ValueError, TypeError):
+                    if days:
+                        logger.debug(f"Converted 'Days' value '{row.get('Days', '')}' to integer: {days}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to convert Days value '{days}' to integer in mapping file row {mapping_row_count}: {str(e)}")
+                    mapping_errors += 1
                     pass
                 
                 if division and sub_division:
                     division_to_subdivision[division] = sub_division
+                    logger.debug(f"Added mapping: Division '{division}' → Sub Division '{sub_division}'")
+                
                 if division_no and division_type:
                     divisionno_to_division[division_no] = division_type
+                    logger.debug(f"Added mapping: Division No '{division_no}' → Division Type '{division_type}'")
+                
                 if state_division_name and days:
                     state_division_to_days[state_division_name] = days
+                    logger.debug(f"Added mapping: State-Division '{state_division_name}' → Days '{days}'")
+            
+            logger.info(f"Completed processing {mapping_row_count} rows from mapping file")
+            logger.info(f"Created lookup dictionaries: division_to_subdivision ({len(division_to_subdivision)} entries), "
+                       f"divisionno_to_division ({len(divisionno_to_division)} entries), "
+                       f"state_division_to_days ({len(state_division_to_days)} entries)")
+            
+            if mapping_errors > 0:
+                logger.warning(f"Encountered {mapping_errors} errors while processing mapping file")
             
             # Process each row and compute new columns
             new_rows = []
