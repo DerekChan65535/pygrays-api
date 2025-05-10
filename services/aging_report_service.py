@@ -355,25 +355,32 @@ class AgingReportService:
                 return response
 
             # Create lookup dictionaries from Tables
-            division_to_subdivision: List[Tuple[str, str]] = []
-            divisionno_to_division: List[Tuple[str, str]] = []
-            division_state_days: List[Tuple[str, str, str]] = []
-
+            division_to_subdivision = []
+            divisionno_to_division = []
+            division_state_days = []
+            
             mapping_errors = 0
-
+            
             logger.info("Building lookup dictionaries from mapping file using column indices")
             tables_data = list(tables_data_reader)
+            
+            # Extract headers from the first row
+            headers = tables_data[0] if tables_data else []
+            
             # The col 0 and 1 of the mapping file is for Division and Sub Division
-            division_to_subdivision_raw = [row[:2] for row in tables_data]
-            division_to_subdivision = [(k, v) for k, v in division_to_subdivision_raw if k and v]
-
+            division_subdivision_headers = headers[:2] if len(headers) >= 2 else ["Division", "Sub Division"]
+            division_to_subdivision_raw = [row[:2] for row in tables_data[1:]]  # Skip header row
+            division_to_subdivision = [dict(zip(division_subdivision_headers, row)) for row in division_to_subdivision_raw if all(row)]
+            
             # The col 3 and 4 of the mapping file is for DivisionNo and Division
-            divisionno_to_division_raw = [row[3:5] for row in tables_data]
-            divisionno_to_division = [(k, v) for k, v in divisionno_to_division_raw if k and v]
-
+            divisionno_division_headers = headers[3:5] if len(headers) >= 5 else ["DivisionNo", "Division"]
+            divisionno_to_division_raw = [row[3:5] for row in tables_data[1:]]  # Skip header row
+            divisionno_to_division = [dict(zip(divisionno_division_headers, row)) for row in divisionno_to_division_raw if all(row)]
+            
             # The col 6, 7, 9 of the mapping file is for Division Name, State, Days
-            division_state_days_raw = [[row[6]] + [row[7]] + [row[9]] for row in tables_data]
-            division_state_days = [(k, v, w) for k, v, w in division_state_days_raw if k and v and w]
+            division_state_days_headers = [headers[6], headers[7], headers[9]] if len(headers) >= 10 else ["Division Name", "State", "Days"]
+            division_state_days_raw = [[row[6], row[7], row[9]] for row in tables_data[1:]]  # Skip header row
+            division_state_days = [dict(zip(division_state_days_headers, row)) for row in division_state_days_raw if all(row)]
 
 
 
@@ -400,14 +407,19 @@ class AgingReportService:
 
                 # Column 46 (AT): Lookup Division from DivisionNo
                 division_no = row_dict.get('Division')
-                new_row['Division Name'] = divisionno_to_division.get(division_no, "")
+                # Find matching division entry
+                division_entry = next((item for item in divisionno_to_division if item.get("DivisionNo") == division_no), None)
+                new_row['Division Name'] = division_entry.get("Division", "") if division_entry else ""
                 # Update AQ with Division Name
                 new_row['State-Division Name'] = f"{state_val}-{new_row['Division Name']}" if state_val and new_row[
                     'Division Name'] else ""
 
                 # Column 44 (AR): Lookup Payment Days
                 state_division = new_row['State-Division Name']
-                new_row['Payment Days'] = state_division_to_days.get(state_division, "")
+                # Find matching entry for state-division
+                state_days_entry = next((item for item in division_state_days 
+                                        if f"{item.get('State')}-{item.get('Division Name')}" == state_division), None)
+                new_row['Payment Days'] = state_days_entry.get("Days", "") if state_days_entry else ""
 
                 # Column 45 (AS): Add Sale_Date and Payment Days
                 sale_date = row_dict.get('Sale_Date')
@@ -419,7 +431,10 @@ class AgingReportService:
 
                 # Column 47 (AU): Lookup Sub Division
                 division = new_row['Division Name']
-                new_row['Sub Division Name'] = division_to_subdivision.get(division, "")
+                # Find matching subdivision entry
+                subdivision_entry = next((item for item in division_to_subdivision 
+                                         if item.get("Division") == division), None)
+                new_row['Sub Division Name'] = subdivision_entry.get("Sub Division", "") if subdivision_entry else ""
 
                 # Column 48 (AV): Compute Gross Amount
                 delot_ind = str(row_dict.get('Delot_Ind', "")).upper() == "TRUE"
