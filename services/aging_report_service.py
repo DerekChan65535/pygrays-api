@@ -5,7 +5,7 @@ import logging
 import sys
 import traceback
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import openpyxl
 from fastapi import UploadFile, HTTPException
@@ -65,7 +65,7 @@ class AgingReportService:
         "Day30": {"type": "float", "required": False},
         "Day31": {"type": "float", "required": False},
     }
-    
+
     @staticmethod
     def parse_date_with_formats(date_string: str, formats: list) -> datetime:
         """
@@ -81,12 +81,12 @@ class AgingReportService:
         if not date_string:
             logger.debug(f"Empty date string provided, returning None")
             return None
-            
+
         # Ensure formats is a list
         if isinstance(formats, str):
             logger.debug(f"Converting single format '{formats}' to list")
             formats = [formats]
-            
+
         # Try each format
         for fmt in formats:
             try:
@@ -96,7 +96,7 @@ class AgingReportService:
             except ValueError:
                 logger.debug(f"Failed to parse date '{date_string}' with format '{fmt}'")
                 continue
-                
+
         # If all formats fail, return None
         logger.warning(f"Failed to parse date '{date_string}' with any provided formats: {formats}")
         return None
@@ -124,10 +124,10 @@ class AgingReportService:
             return True
         logger.debug("No errors to handle in response")
         return False
-    
+
     async def process_uploaded_file(self, mapping_file: 'FileModel',
                                     data_files: List['FileModel']) -> 'ResponseBase':
-    
+
         """
                 Processes multiple daily Sales Aged Balance reports, computes values for columns 43 to 55,
                 and returns a FileModel with the combined processed data.
@@ -143,22 +143,22 @@ class AgingReportService:
         logger.info("=== Starting process_uploaded_file ===")
         logger.info(f"Received mapping file: {mapping_file.name} ({len(mapping_file.content)} bytes)")
         logger.info(f"Received {len(data_files)} data files")
-        
+
         # Log data file names
         for idx, file in enumerate(data_files):
             logger.info(f"Data file {idx+1}: {file.name} ({len(file.content)} bytes)")
-            
+
         errors = []
         response = ResponseBase(is_success=True)
-        
+
         try:
             today = datetime.today()
             date_str = today.strftime("%Y%m%d")
             logger.debug(f"Processing date: {today}, formatted as {date_str}")
-    
+
             import re
             logger.debug("Imported re module for regex operations")
-            
+
             # Headers for template sheet
             headers = [
                 "Classification", "Sale_No", "Description", "Division", "BDM", "Sale_Date",
@@ -171,7 +171,7 @@ class AgingReportService:
                 "Gross Amount", "Collected", "To be Collected", "Payable to Vendor",
                 "Month", "Year", "Cheque Date Y/N", "Days Late for Vendors Pmt", "Comments"
             ]
-            
+
             # Check if data files are provided
             if not data_files or len(data_files) == 0:
                 error_msg = "No data files provided"
@@ -180,19 +180,19 @@ class AgingReportService:
                 logger.info("Terminating processing due to missing data files")
                 self._handle_errors(errors, response)
                 return response
-                    
+
             # Combined processed data from all files
             all_processed_data = []
             logger.debug("Initialized empty list for all_processed_data")
-                    
+
             # Process each data file
             file_count = len(data_files)
             logger.info(f"Beginning processing of {file_count} data files")
-            
+
             for file_idx, data_file in enumerate(data_files, 1):
                 file_start_time = time.time()
                 logger.info(f"Processing file {file_idx}/{file_count}: {data_file.name}")
-                
+
                 # Extract state from filename using regex pattern
                 # Multiple supported formats:
                 # 1. "Sales Aged Balance [state].csv" (space-separated)
@@ -206,10 +206,10 @@ class AgingReportService:
                     logger.error(error_msg)
                     logger.warning(f"Skipping file {data_file.name} due to invalid filename format")
                     continue
-                    
+
                 state = state_match.group(1).upper()  # Convert to uppercase for consistency
                 logger.info(f"Extracted state '{state}' from filename {data_file.name}")
-        
+
                 # Load data file (daily sheet) using DictReader for direct dictionary creation
                 logger.debug(f"Decoding content of {data_file.name}")
                 try:
@@ -222,31 +222,31 @@ class AgingReportService:
                     logger.error(error_msg, exc_info=True)
                     errors.append(error_msg)
                     continue
-                
+
                 # Process rows using the import schema
                 daily_data = []
                 row_count = 0
                 conversion_errors = 0
-                
+
                 logger.info(f"Beginning row processing for {data_file.name}")
                 for row_dict in daily_data_reader:
                     row_count += 1
                     if row_count % 100 == 0:
                         logger.debug(f"Processed {row_count} rows from {data_file.name}")
-                    
+
                     # Apply schema-based conversions
                     converted_row = {}
                     row_errors = 0
-                    
+
                     for field, value in row_dict.items():
                         # Skip if field is not in schema
                         if field not in self.daily_data_import_schema.keys():
                             logger.debug(f"Field '{field}' not in schema, keeping original value: {value}")
                             converted_row[field] = value
                             continue
-                        
+
                         field_schema = self.daily_data_import_schema[field]
-                        
+
                         # Skip empty values unless required
                         if not value and not field_schema.get("required", False):
                             converted_row[field] = None
@@ -254,7 +254,7 @@ class AgingReportService:
                         elif not value and field_schema.get("required", False):
                             logger.warning(f"Missing required field '{field}' in row {row_count}")
                             row_errors += 1
-                        
+
                         field_type = field_schema.get("type")
                         try:
                             # Convert based on field type
@@ -266,7 +266,7 @@ class AgingReportService:
                                 if parsed_date is None:
                                     logger.warning(f"Could not parse date '{value}' for field '{field}' in row {row_count}")
                                     row_errors += 1
-                                    
+
                             elif field_type == "float" and value:
                                 converted_row[field] = float(value)
                                 logger.debug(f"Converted '{field}' value '{value}' to float: {converted_row[field]}")
@@ -288,16 +288,16 @@ class AgingReportService:
                             logger.warning(f"Failed to convert field '{field}' with value '{value}' to {field_type}: {str(e)}")
                             converted_row[field] = value
                             row_errors += 1
-                    
+
                     if row_errors > 0:
                         conversion_errors += 1
                         logger.debug(f"Row {row_count} had {row_errors} conversion errors")
-                    
+
                     daily_data.append(converted_row)
-                
+
                 logger.info(f"Completed processing {row_count} rows from {data_file.name}")
                 logger.info(f"Found {conversion_errors} rows with conversion errors")
-                
+
                 # Clean data: Filter out rows based on conditions
                 logger.info(f"Filtering data for {data_file.name}, starting with {len(daily_data)} rows")
                 filtered_daily_data = []
@@ -307,7 +307,7 @@ class AgingReportService:
                     "cancellation": 0,
                     "totals": 0
                 }
-                
+
                 for row_idx, row_dict in enumerate(daily_data):
                     cheque_date = row_dict.get('Cheque_Date')
                     gross_tot = row_dict.get('Gross_Tot')
@@ -331,81 +331,60 @@ class AgingReportService:
                         excluded_count["total_invoices"] += 1
                         logger.debug(f"Excluding row {row_idx}: Classification is '{classification}'")
                         continue
-                    
+
                     # Add state to the row
                     row_dict['State'] = state
                     filtered_daily_data.append(row_dict)
-                
+
                 logger.info(f"Filtering complete. Kept {len(filtered_daily_data)} rows, excluded {len(daily_data) - len(filtered_daily_data)} rows")
                 logger.info(f"Exclusion breakdown: {excluded_count}")
-            
-            # Load mapping file (tables sheet) using DictReader
+
+            # Load mapping file (tables sheet) using csv.reader to access by column indices
             logger.info(f"Processing mapping file: {mapping_file.name}")
-            
+
             try:
-                tables_data_str = mapping_file.content.decode('utf-8')
+                tables_data_str = mapping_file.content.decode('utf-8-sig')  # Decode using UTF-8-SIG encoding to remove BOM if present
                 logger.debug(f"Successfully decoded mapping file content ({len(tables_data_str)} characters)")
-                tables_data_reader = csv.DictReader(io.StringIO(tables_data_str))
-                logger.debug(f"Created CSV DictReader for mapping file")
+                tables_data_reader = csv.reader(io.StringIO(tables_data_str))
+                logger.debug(f"Created CSV reader for mapping file to access columns by index")
             except Exception as decode_error:
                 error_msg = f"Error decoding mapping file {mapping_file.name}: {str(decode_error)}"
                 logger.error(error_msg, exc_info=True)
                 errors.append(error_msg)
                 self._handle_errors(errors, response)
                 return response
-            
-            # Create lookup dictionaries from Tables
-            division_to_subdivision = {}
-            divisionno_to_division = {}
-            state_division_to_days = {}
-            
-            mapping_row_count = 0
-            mapping_errors = 0
-            
-            logger.info("Building lookup dictionaries from mapping file")
-            for row in tables_data_reader:
-                mapping_row_count += 1
-                
-                # Access fields by column names instead of indices
-                division = row.get('Division', '')
-                sub_division = row.get('Sub Division', '')
-                division_no = row.get('Division No', '')
-                division_type = row.get('Division Type', '')
-                state_val = row.get('State', '')
-                state_division_name = row.get('State-Division Name', '')
 
-                
-                # Convert days to integer if possible
-                days = row.get('Days', '')
-                try:
-                    days = int(days) if days else ""
-                    if days:
-                        logger.debug(f"Converted 'Days' value '{row.get('Days', '')}' to integer: {days}")
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Failed to convert Days value '{days}' to integer in mapping file row {mapping_row_count}: {str(e)}")
-                    mapping_errors += 1
-                    pass
-                
-                if division and sub_division:
-                    division_to_subdivision[division] = sub_division
-                    logger.debug(f"Added mapping: Division '{division}' → Sub Division '{sub_division}'")
-                
-                if division_no and division_type:
-                    divisionno_to_division[division_no] = division_type
-                    logger.debug(f"Added mapping: Division No '{division_no}' → Division Type '{division_type}'")
-                
-                if state_division_name and days:
-                    state_division_to_days[state_division_name] = days
-                    logger.debug(f"Added mapping: State-Division '{state_division_name}' → Days '{days}'")
-            
-            logger.info(f"Completed processing {mapping_row_count} rows from mapping file")
+            # Create lookup dictionaries from Tables
+            division_to_subdivision: List[Tuple[str, str]] = []
+            divisionno_to_division: List[Tuple[str, str]] = []
+            division_state_days: List[Tuple[str, str, str]] = []
+
+            mapping_errors = 0
+
+            logger.info("Building lookup dictionaries from mapping file using column indices")
+            tables_data = list(tables_data_reader)
+            # The col 0 and 1 of the mapping file is for Division and Sub Division
+            division_to_subdivision_raw = [row[:2] for row in tables_data]
+            division_to_subdivision = [(k, v) for k, v in division_to_subdivision_raw if k and v]
+
+            # The col 3 and 4 of the mapping file is for DivisionNo and Division
+            divisionno_to_division_raw = [row[3:5] for row in tables_data]
+            divisionno_to_division = [(k, v) for k, v in divisionno_to_division_raw if k and v]
+
+            # The col 6, 7, 9 of the mapping file is for Division Name, State, Days
+            division_state_days_raw = [[row[6]] + [row[7]] + [row[9]] for row in tables_data]
+            division_state_days = [(k, v, w) for k, v, w in division_state_days_raw if k and v and w]
+
+
+
+            logger.info(f"Completed processing {len(tables_data)} rows from mapping file")
             logger.info(f"Created lookup dictionaries: division_to_subdivision ({len(division_to_subdivision)} entries), "
                        f"divisionno_to_division ({len(divisionno_to_division)} entries), "
-                       f"state_division_to_days ({len(state_division_to_days)} entries)")
-            
+                       f"state_division_to_days ({len(division_state_days)} entries)")
+
             if mapping_errors > 0:
                 logger.warning(f"Encountered {mapping_errors} errors while processing mapping file")
-            
+
             # Process each row and compute new columns
             new_rows = []
             for row_dict in filtered_daily_data:
@@ -522,29 +501,31 @@ class AgingReportService:
 
             # Add processed rows to the combined result
             all_processed_data.extend(new_rows)
-            
+
             # Create the output workbook here (end of method)
             template_wb = openpyxl.Workbook()
             template_sheet = template_wb.active
             template_sheet.title = "---DATA---"
-            
+
             # Create a Tables sheet
             tables_sheet = template_wb.create_sheet(title="Tables")
-            
+
             # Populate the Tables sheet with original mapping data
             # Convert mapping file back to rows for the Tables sheet
+            # We'll preserve the original structure since we're only changing how we read it
             tables_data_str = mapping_file.content.decode('utf-8')
             tables_data_csv = csv.reader(io.StringIO(tables_data_str))
             tables_data_rows = list(tables_data_csv)
-            
+
+            logger.debug(f"Copying {len(tables_data_rows)} rows to Tables sheet in output workbook")
             for row_idx, row in enumerate(tables_data_rows, 1):
                 for col_idx, value in enumerate(row, 1):
                     tables_sheet.cell(row=row_idx, column=col_idx).value = value
-            
+
             # Add headers to template sheet
             for i, header in enumerate(headers, 1):
                 template_sheet.cell(row=1, column=i).value = header
-            
+
             # Append all processed rows to template
             for row_dict in all_processed_data:
                 row_values = [row_dict.get(header, None) for header in headers]
@@ -564,7 +545,7 @@ class AgingReportService:
 
         except Exception as e:
             # Log the error and return error response
-            end_time = time.time() - start_time
+            end_time = time.time() - method_start_time
             error_message = f"Error processing file: {str(e)}"
             logger.error(error_message, exc_info=True)
             errors.append(error_message)
