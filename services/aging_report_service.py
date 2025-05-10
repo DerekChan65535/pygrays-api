@@ -207,7 +207,7 @@ class AgingReportService:
                     logger.warning(f"Skipping file {data_file.name} due to invalid filename format")
                     continue
                     
-                state = state_match.group(1).lower()  # Convert to lowercase for consistency
+                state = state_match.group(1).upper()  # Convert to uppercase for consistency
                 logger.info(f"Extracted state '{state}' from filename {data_file.name}")
         
                 # Load data file (daily sheet) using DictReader for direct dictionary creation
@@ -313,12 +313,7 @@ class AgingReportService:
                     gross_tot = row_dict.get('Gross_Tot')
                     description = row_dict.get('Description')
                     classification = row_dict.get('Classification')
-                    
-                    # Log detailed info for every 100th row as an example
-                    if row_idx % 100 == 0:
-                        logger.debug(f"Filtering row {row_idx}: Cheque_Date={cheque_date}, "
-                                    f"Gross_Tot={gross_tot}, Classification={classification}")
-                    
+
                     # Skip rows that meet exclusion criteria
                     if cheque_date is not None:
                         excluded_count["cheque_date"] += 1
@@ -333,7 +328,7 @@ class AgingReportService:
                         logger.debug(f"Excluding row {row_idx}: Buyer Cancellation Fees in description")
                         continue
                     if classification in ['Total Invoices', 'Total Payments', 'Total Bankings']:
-                        excluded_count["totals"] += 1
+                        excluded_count["total_invoices"] += 1
                         logger.debug(f"Excluding row {row_idx}: Classification is '{classification}'")
                         continue
                     
@@ -378,11 +373,7 @@ class AgingReportService:
                 division_type = row.get('Division Type', '')
                 state_val = row.get('State', '')
                 state_division_name = row.get('State-Division Name', '')
-                
-                # Log every 10th row as a sample
-                if mapping_row_count % 10 == 0:
-                    logger.debug(f"Mapping row {mapping_row_count}: Division={division}, "
-                               f"Sub Division={sub_division}, Division No={division_no}")
+
                 
                 # Convert days to integer if possible
                 days = row.get('Days', '')
