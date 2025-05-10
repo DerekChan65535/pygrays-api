@@ -308,29 +308,59 @@ class AgingReportService:
                     "totals": 0
                 }
 
+                # -------------------------------------------------------------------------
+                # DATA FILTERING SECTION
+                # This section filters out rows from the daily data based on business rules.
+                # Rows are excluded if they:
+                #   1. Have a Cheque_Date (indicating already processed transactions)
+                #   2. Have zero Gross_Tot (indicating no financial value)
+                #   3. Contain "Buyer Cancellation Fees" in the description (special handling transactions)
+                #   4. Are summary/total rows with specific classifications
+                # The exclusion count is tracked for reporting and audit purposes
+                # -------------------------------------------------------------------------
                 for row_idx, row_dict in enumerate(daily_data):
+                    # Extract key fields needed for filtering decisions
                     cheque_date = row_dict.get('Cheque_Date')
                     gross_tot = row_dict.get('Gross_Tot')
                     description = row_dict.get('Description')
                     classification = row_dict.get('Classification')
-
+                
                     # Skip rows that meet exclusion criteria
                     if cheque_date is not None:
+                        # Exclusion Rule 1: Skip rows with a Cheque_Date
+                        # Rationale: Rows with cheque dates represent transactions that are 
+                        # already processed and should not be included in the aging report
                         excluded_count["cheque_date"] += 1
                         logger.debug(f"Excluding row {row_idx}: Non-null Cheque_Date={cheque_date}")
                         continue
+                        
                     if gross_tot == 0:
+                        # Exclusion Rule 2: Skip rows with zero gross total
+                        # Rationale: Zero-value transactions don't contribute financially
+                        # to the aging report and are typically informational entries
                         excluded_count["zero_gross"] += 1
                         logger.debug(f"Excluding row {row_idx}: Zero Gross_Tot")
                         continue
+                        
                     if description and "Buyer Cancellation Fees" in str(description):
+                        # Exclusion Rule 3: Skip cancellation fee rows
+                        # Rationale: Cancellation fees have special handling requirements
+                        # and are not part of the standard aging calculation
                         excluded_count["cancellation"] += 1
                         logger.debug(f"Excluding row {row_idx}: Buyer Cancellation Fees in description")
                         continue
+                        
                     if classification in ['Total Invoices', 'Total Payments', 'Total Bankings']:
+                        # Exclusion Rule 4: Skip summary/total rows 
+                        # Rationale: These are calculated totals in the source data
+                        # and should not be included to avoid double-counting
                         excluded_count["total_invoices"] += 1
                         logger.debug(f"Excluding row {row_idx}: Classification is '{classification}'")
                         continue
+                    
+                    # If the row passes all exclusion criteria, it will continue
+                    # to the next section below where we add the state and
+                    # append it to the filtered_daily_data list
 
                     # Add state to the row
                     row_dict['State'] = state
