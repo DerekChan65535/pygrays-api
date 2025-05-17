@@ -395,20 +395,20 @@ class AgingReportService:
             tables_data = list(tables_data_reader)
             
             # Extract headers from the first row
-            headers = tables_data[0] if tables_data else []
+            mapping_file_headers = tables_data[0] if tables_data else []
             
             # The col 0 and 1 of the mapping file is for Division and Sub Division
-            division_subdivision_headers = headers[:2] if len(headers) >= 2 else ["Division", "Sub Division"]
+            division_subdivision_headers = mapping_file_headers[:2] if len(mapping_file_headers) >= 2 else ["Division", "Sub Division"]
             division_to_subdivision_raw = [row[:2] for row in tables_data[1:]]  # Skip header row
             division_to_subdivision = [dict(zip(division_subdivision_headers, row)) for row in division_to_subdivision_raw if all(row)]
             
             # The col 3 and 4 of the mapping file is for DivisionNo and Division
-            divisionno_division_headers = headers[3:5] if len(headers) >= 5 else ["DivisionNo", "Division"]
+            divisionno_division_headers = mapping_file_headers[3:5] if len(mapping_file_headers) >= 5 else ["DivisionNo", "Division"]
             divisionno_to_division_raw = [row[3:5] for row in tables_data[1:]]  # Skip header row
             divisionno_to_division = [dict(zip(divisionno_division_headers, row)) for row in divisionno_to_division_raw if all(row)]
             
             # The col 6, 7, 9 of the mapping file is for Division Name, State, Days
-            division_state_days_headers = [headers[6], headers[7], headers[9]] if len(headers) >= 10 else ["Division Name", "State", "Days"]
+            division_state_days_headers = [mapping_file_headers[6], mapping_file_headers[7], mapping_file_headers[9]] if len(mapping_file_headers) >= 10 else ["Division Name", "State", "Days"]
             division_state_days_raw = [[row[6], row[7], row[9]] for row in tables_data[1:]]  # Skip header row
             division_state_days = [dict(zip(division_state_days_headers, row)) for row in division_state_days_raw if all(row)]
 
