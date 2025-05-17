@@ -20,7 +20,19 @@ async def main():
     response = await aging_service.process_uploaded_file(mapping_file, [raw_sales_data])
 
     # You can do something with the response here, e.g., print(response)
-    pass
+    if response.is_success and response.data:
+        output_filename = response.data.name
+        output_path = fr"Z:\Ariel\ageing\{output_filename}"  # Use raw string for Windows path
+        try:
+            with open(output_path, "wb") as f:
+                f.write(response.data.content)
+            print(f"File saved successfully to: {output_path}")
+        except Exception as e:
+            print(f"Error saving file: {e}")
+    elif not response.is_success:
+        print(f"Processing failed: {response.errors}")
+    else:
+        print("Processing completed but no data to save.")
 
 
 if __name__ == '__main__':
