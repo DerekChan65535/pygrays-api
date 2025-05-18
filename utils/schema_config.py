@@ -52,6 +52,7 @@ class BaseSchema:
     def __init__(self, schema: Dict[str, Any]):
         self.schema = schema
 
+class ImportSchema(BaseSchema):
     def import_data(self, raw_data: bytes, errors: List[str]) -> List[Dict[str, Any]]:
         try:
             text = raw_data.decode('utf-8-sig')
@@ -87,6 +88,7 @@ class BaseSchema:
             logger.error(f'Error importing data', exc_info=True)
             return []
 
+class ExportSchema(BaseSchema):
     def export_data(self, data: List[Dict[str, Any]], workbook: Workbook, sheet_name: str, errors: List[str]) -> bool:
         try:
             sheet = workbook.create_sheet(sheet_name)
@@ -113,7 +115,7 @@ class BaseSchema:
             return False
 
 # Aging Report Service Schemas
-aging_report_daily_data_import_schema = BaseSchema({
+aging_report_daily_data_import_schema = ImportSchema({
     'Classification': SchemaField('string'),
     'Sale_No': SchemaField('string', required=True),
     'Description': SchemaField('string'),
@@ -158,7 +160,7 @@ aging_report_daily_data_import_schema = BaseSchema({
 })
 
 # Inventory Service Schemas
-inventory_dropship_sales_schema = BaseSchema({
+inventory_dropship_sales_schema = ImportSchema({
     'Customer': SchemaField('string'),
     'AX_ProductCode': SchemaField('string'),
     'GST': SchemaField('string'),
@@ -180,7 +182,7 @@ inventory_dropship_sales_schema = BaseSchema({
     'FreightCodeDescription': SchemaField('string')
 })
 
-inventory_deals_schema = BaseSchema({
+inventory_deals_schema = ImportSchema({
     'Customer': SchemaField('string'),
     'AX_ProductCode': SchemaField('string'),
     'GST': SchemaField('string'),
@@ -204,12 +206,12 @@ inventory_deals_schema = BaseSchema({
     'FreightCodeDescription': SchemaField('string')
 })
 
-inventory_uom_mapping_schema = BaseSchema({
+inventory_uom_mapping_schema = ImportSchema({
     'Item': SchemaField('string'),
     'UOM': SchemaField('decimal')
 })
 
-inventory_mixed_export_schema = BaseSchema({
+inventory_mixed_export_schema = ExportSchema({
     'Customer': SchemaField('string'),
     'AX_ProductCode': SchemaField('string'),
     'Per_Unit_Cost': SchemaField('decimal'),
@@ -234,7 +236,7 @@ inventory_mixed_export_schema = BaseSchema({
     'FreightCodeDescription': SchemaField('string')
 })
 
-inventory_wine_export_schema = BaseSchema({
+inventory_wine_export_schema = ExportSchema({
     'Customer': SchemaField('string'),
     'AX_ProductCode': SchemaField('string'),
     'Per_Unit_Cost': SchemaField('decimal'),
