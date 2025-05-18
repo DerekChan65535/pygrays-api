@@ -412,7 +412,7 @@ class AgingReportService:
                     "cheque_date": 0,
                     "zero_gross": 0,
                     "cancellation": 0,
-                    "totals": 0
+                    "totals_rows": 0
                 }
 
                 # -------------------------------------------------------------------------
@@ -422,7 +422,7 @@ class AgingReportService:
                 #   1. Have a Cheque_Date (indicating already processed transactions)
                 #   2. Have zero Gross_Tot (indicating no financial value)
                 #   3. Contain "Buyer Cancellation Fees" in the description (special handling transactions)
-                #   4. Are summary/total rows with specific classifications
+                #   4. Are summary/total rows with specific descriptions
                 # The exclusion count is tracked for reporting and audit purposes
                 # -------------------------------------------------------------------------
                 for row_idx, row_dict in enumerate(daily_data):
@@ -457,12 +457,12 @@ class AgingReportService:
                         logger.debug(f"Excluding row {row_idx}: Buyer Cancellation Fees in description")
                         continue
                         
-                    if classification in ['Total Invoices', 'Total Payments', 'Total Bankings']:
+                    if description and any(total_text in str(description) for total_text in ['Total Invoices', 'Total Payments', 'Total Bankings']):
                         # Exclusion Rule 4: Skip summary/total rows 
                         # Rationale: These are calculated totals in the source data
                         # and should not be included to avoid double-counting
-                        excluded_count["total_invoices"] += 1
-                        logger.debug(f"Excluding row {row_idx}: Classification is '{classification}'")
+                        excluded_count["totals_rows"] += 1
+                        logger.debug(f"Excluding row {row_idx}: Found totals text in description: '{description}'")
                         continue
                     
                     # If the row passes all exclusion criteria, it will continue
