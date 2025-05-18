@@ -410,8 +410,28 @@ class AgingReportService:
             # The col 6, 7, 9 of the mapping file is for Division Name, State, Days
             division_state_days_headers = [mapping_file_headers[6], mapping_file_headers[7], mapping_file_headers[9]] if len(mapping_file_headers) >= 10 else ["Division Name", "State", "Days"]
             division_state_days_raw = [[row[6], row[7], row[9]] for row in tables_data[1:]]  # Skip header row
-            division_state_days = [dict(zip(division_state_days_headers, row)) for row in division_state_days_raw if all(row)]
+            # division_state_days = [dict(zip(division_state_days_headers, row)) for row in division_state_days_raw if all(row)]
 
+            division_state_days = []
+            for raw_row_list in division_state_days_raw:
+                # Ensure the list has enough elements for the headers
+                if len(raw_row_list) == len(division_state_days_headers):
+                    entry = dict(zip(division_state_days_headers, raw_row_list))
+                    try:
+                        days_value_str = str(entry.get("Days", "")).strip()
+                        if days_value_str: # Ensure not empty string
+                            entry["Days"] = int(float(days_value_str)) # Convert to float first for robustness, then int
+                        else:
+                            entry["Days"] = None # Or 0, depending on desired default
+                    except ValueError:
+                        logger.warning(f"Could not convert 'Days' value '{entry.get('Days')}' to int for entry: {entry}")
+                        entry["Days"] = None # Or 0, depending on desired default
+                    
+                    # Only add if essential parts of the entry are valid (e.g., State and Division Name are present)
+                    if entry.get("State") and entry.get("Division Name"):
+                         division_state_days.append(entry)
+                else:
+                    logger.warning(f"Skipping mapping row due to mismatched length: {raw_row_list}")
 
 
             logger.info(f"Completed processing {len(tables_data)} rows from mapping file")
@@ -454,10 +474,12 @@ class AgingReportService:
                 # Column 45 (AS): Add Sale_Date and Payment Days
                 sale_date = row_dict.get('Sale_Date')
                 payment_days = new_row['Payment Days']
-                if isinstance(sale_date, datetime) and isinstance(payment_days, (int, float)):
+                if isinstance(sale_date, datetime) and isinstance(payment_days, int):
                     new_row['Due Date'] = sale_date + timedelta(days=payment_days)
                 else:
                     new_row['Due Date'] = ""
+                    if not isinstance(payment_days, int):
+                        logger.debug(f"Payment days '{payment_days}' is not an int for Sale_No {row_dict.get('Sale_No')}, Sale_Date '{sale_date}'. Due Date set to empty.")
 
                 # Column 47 (AU): Lookup Sub Division
                 division = new_row['Division Name']
@@ -470,42 +492,41 @@ class AgingReportService:
                 delot_ind = str(row_dict.get('Delot_Ind', "")).upper() == "TRUE"
                 gross_tot = row_dict.get('Gross_Tot')
                 sale_no = row_dict.get('Sale_No')
+                current_gross_amount_num = 0.0
                 if delot_ind and isinstance(gross_tot, (int, float)) and isinstance(sale_no, (int, float)):
-                    new_row['Gross Amount'] = gross_tot - sale_no
-                else:
-                    new_row['Gross Amount'] = gross_tot if isinstance(gross_tot, (int, float)) else ""
+                    current_gross_amount_num = float(gross_tot - sale_no)
+                elif isinstance(gross_tot, (int, float)):
+                    current_gross_amount_num = float(gross_tot)
+                new_row['Gross Amount'] = current_gross_amount_num
 
-                # Column 49 (AW): Subtract Collected from Gross Amount
-                gross_amount = new_row['Gross Amount']
-                collected = new_row.get('Collected', 0)  # Default to 0 if not set
-                try:
-                    if isinstance(gross_amount, (int, float)) and isinstance(collected, (int, float)):
-                        new_row['Collected'] = gross_amount - collected
-                    else:
-                        new_row['Collected'] = ""
-                except:
-                    new_row['Collected'] = ""
-
-                # Column 50 (AX): Get Day value for today
+                # Column 50 (AX): Get Day value for today - this becomes 'To be Collected'
                 day_num = today.day
                 day_key = f"Day{day_num}"
-                new_row['To be Collected'] = row_dict.get(day_key, None)
+                numeric_to_be_collected = 0.0
+                source_tbc_val = row_dict.get(day_key, None)
+                if isinstance(source_tbc_val, (int, float)):
+                    numeric_to_be_collected = float(source_tbc_val)
+                new_row['To be Collected'] = numeric_to_be_collected
 
-                # Column 51 (AY): Compute difference based on Delot_Ind
-                if new_row['To be Collected'] is not None:
-                    classification = row_dict.get('Classification')
-                    day_value = new_row['To be Collected']
-                    if delot_ind and isinstance(classification, (int, float)) and isinstance(day_value, (int, float)):
-                        new_row['Payable to Vendor'] = classification - day_value
-                    else:
-                        new_row['Payable to Vendor'] = 0
-                else:
-                    new_row['Payable to Vendor'] = ""
-
+                # Column 49 (AW): Calculate 'Collected' = Gross Amount - To be Collected
+                # This definition is based on the desired output reconciliation.
+                collected_calc = 0.0
+                if isinstance(current_gross_amount_num, (int, float)) and isinstance(numeric_to_be_collected, (int, float)):
+                    collected_calc = current_gross_amount_num - numeric_to_be_collected
+                new_row['Collected'] = collected_calc
+                
+                # Column 51 (AY): Compute Payable to Vendor
+                payable_to_vendor_val_num = 0.0 
+                # Logic: if Delot_Ind is TRUE and To Be Collected is 0, then Payable to Vendor = Gross Amount. Otherwise 0.
+                if delot_ind:
+                    if numeric_to_be_collected == 0.0: 
+                        payable_to_vendor_val_num = current_gross_amount_num
+                new_row['Payable to Vendor'] = payable_to_vendor_val_num
+                
                 # Column 52 (AZ): Format Sale_Date as MMM-YY
                 if row_dict.get('Description'):
                     if isinstance(sale_date, datetime):
-                        new_row['Month'] = sale_date.strftime("%b-%y").upper()
+                        new_row['Month'] = sale_date.strftime("%b-%y")
                     else:
                         new_row['Month'] = ""
                 else:
@@ -520,13 +541,11 @@ class AgingReportService:
                 else:
                     new_row['Year'] = ""
 
-                # Column 54 (BB): Check To be Collected
-                if row_dict.get('Cheque_Date'):
-                    to_be_collected = new_row['To be Collected']
-                    new_row['Cheque Date Y/N'] = "YES" if isinstance(to_be_collected,
-                                                                     (int, float)) and to_be_collected != 0 else "NO"
+                # Column 54 (BB): Check To be Collected (Interpreted as Cheque Date Y/N based on output)
+                if row_dict.get('Cheque_Date'): # If Cheque_Date has any value
+                    new_row['Cheque Date Y/N'] = "YES"
                 else:
-                    new_row['Cheque Date Y/N'] = ""
+                    new_row['Cheque Date Y/N'] = "NO"
 
                 # Column 55 (BC): Compute days late
                 try:
@@ -571,10 +590,43 @@ class AgingReportService:
             for i, header in enumerate(headers, 1):
                 template_sheet.cell(row=1, column=i).value = header
 
+            # Define column indices for formatting (1-based)
+            # Ensure these header names exactly match those in your `headers` list
+            col_gross_amount_idx = headers.index("Gross Amount") + 1
+            col_collected_idx = headers.index("Collected") + 1
+            col_tbc_idx = headers.index("To be Collected") + 1
+            col_ptv_idx = headers.index("Payable to Vendor") + 1
+            col_due_date_idx = headers.index("Due Date") + 1
+            
+            custom_number_format = "_(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)"
+            date_format_dd_mmm_yy = "DD-MMM-YY"
+
             # Append all processed rows to template
+            current_row_excel = 2 # Start from row 2 for data
             for row_dict in all_processed_data:
-                row_values = [row_dict.get(header, None) for header in headers]
+                row_values = []
+                for header_key in headers: 
+                    val = row_dict.get(header_key, None)
+                    # Ensure datetime objects are naive if they are timezone-aware, or handle as needed
+                    # openpyxl works best with naive datetime objects or timezone-aware ones if Excel is set up for it.
+                    if isinstance(val, datetime) and val.tzinfo is not None:
+                        val = val.replace(tzinfo=None) # Example: make naive
+                    row_values.append(val)
                 template_sheet.append(row_values)
+
+                # Apply formatting for specific columns in the current row
+                template_sheet.cell(row=current_row_excel, column=col_gross_amount_idx).number_format = custom_number_format
+                template_sheet.cell(row=current_row_excel, column=col_collected_idx).number_format = custom_number_format
+                template_sheet.cell(row=current_row_excel, column=col_tbc_idx).number_format = custom_number_format
+                template_sheet.cell(row=current_row_excel, column=col_ptv_idx).number_format = custom_number_format
+                
+                # Apply date format for Due Date
+                # Check if the cell actually contains a date (it might be "" if Due Date couldn't be calculated)
+                due_date_val = template_sheet.cell(row=current_row_excel, column=col_due_date_idx).value
+                if isinstance(due_date_val, datetime):
+                    template_sheet.cell(row=current_row_excel, column=col_due_date_idx).number_format = date_format_dd_mmm_yy
+                
+                current_row_excel +=1
 
             # Save the workbook to bytes
             output = io.BytesIO()
