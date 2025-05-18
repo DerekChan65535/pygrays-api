@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple, Dict, Any, Union
 import zipfile
 
 import openpyxl
+from openpyxl.styles import PatternFill
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
@@ -573,21 +574,91 @@ class AgingReportService:
                 return response
             logger.info(f"Exported {len(all_processed_data)} rows to '---DATA---' sheet using export schema.")
 
-            # Save the workbook to bytes
+            # Save the original workbook to bytes
             output: io.BytesIO = io.BytesIO()
             template_wb.save(output)
             output.seek(0)
-            logger.debug("Saved output workbook to bytes.")
+            logger.debug("Saved original output workbook to bytes.")
 
-            # Create a ZIP file containing the Excel file
+            # Create a ZIP file to hold all Excel files
             zip_output = io.BytesIO()
             with zipfile.ZipFile(zip_output, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Add the original Excel file
                 zipf.writestr(f"Sales_Aged_Balance_Report_{date_str}.xlsx", output.getvalue())
-            zip_output.seek(0)
-            logger.debug("Created ZIP file containing the Excel report.")
+                logger.debug("Added original Excel file to ZIP.")
+
+                # Define filter criteria for each report type based on VBA script
+                filter_criteria = {
+                    'DivAUTO': ["BANKING, INSOLVENCY & FINANCE", "CONSUMER", "INDUSTRIAL", "WINE"],
+                    'DivINDUSTRIAL': ["AUTO W", "CONSUMER", "BOATS", "CARAVANS", "WINE"],
+                    'DivCONSUMER': ["AUTO", "BANKING, INSOLVENCY & FINANCE", "BOATS", "CARAVANS", "INDUSTRIAL", "WINE"]
+                }
+
+                # Create separate Excel files for each filter type
+                for report_type, criteria in filter_criteria.items():
+                    logger.info(f"Creating Excel file for {report_type}")
+                    # Filter data based on Sub Division Name (column AU/47)
+                    filtered_data = [row for row in all_processed_data if row.get('Sub Division Name') in criteria]
+                    logger.info(f"Filtered {len(filtered_data)} rows for {report_type}")
+
+                    # Create a new workbook for this report type
+                    report_wb = openpyxl.Workbook()
+                    if 'Sheet' in report_wb.sheetnames:
+                        del report_wb['Sheet']  # Remove default sheet
+
+                    # Create FULLY PAID sheet - rows where 'To be Collected' is 0.0
+                    fully_paid_data = [row for row in filtered_data if row.get('To be Collected') == 0.0]
+                    success = aging_report_export_schema.export_data(fully_paid_data, report_wb, 'FULLY PAID', errors_export)
+                    if not success:
+                        logger.error(f"Failed to export FULLY PAID data for {report_type}: {errors_export}")
+                        errors.extend(errors_export)
+                        self._handle_errors(errors, response)
+                        return response
+                    logger.info(f"Exported {len(fully_paid_data)} rows to 'FULLY PAID' sheet for {report_type}")
+
+                    # Create NOT FULLY PAID sheet - rows where 'To be Collected' is not 0.0
+                    not_fully_paid_data = [row for row in filtered_data if row.get('To be Collected') != 0.0]
+                    success = aging_report_export_schema.export_data(not_fully_paid_data, report_wb, 'NOT FULLY PAID', errors_export)
+                    if not success:
+                        logger.error(f"Failed to export NOT FULLY PAID data for {report_type}: {errors_export}")
+                        errors.extend(errors_export)
+                        self._handle_errors(errors, response)
+                        return response
+                    logger.info(f"Exported {len(not_fully_paid_data)} rows to 'NOT FULLY PAID' sheet for {report_type}")
+
+                    # Sort FULLY PAID sheet by Due Date (column AS/45) 
+                    fully_paid_sheet = report_wb['FULLY PAID']
+                    fully_paid_sheet_data = fully_paid_sheet[2:fully_paid_sheet.max_row]
+                    sorted_data = sorted(fully_paid_sheet_data, key=lambda row: row[44].value if row[44].value else datetime.min)
+                    for row_idx, row_data in enumerate(sorted_data, start=2):
+                        for col_idx, cell in enumerate(row_data):
+                            fully_paid_sheet.cell(row=row_idx, column=col_idx+1).value = cell.value
+                    logger.info(f"Sorted 'FULLY PAID' sheet by Due Date for {report_type}")
+
+                    # Highlight cells in FULLY PAID sheet where Due Date <= yesterday
+                    from datetime import date
+                    yesterday = date.today() - timedelta(days=1)
+                    for row in fully_paid_sheet.iter_rows(min_row=2, min_col=45, max_col=45):
+                        for cell in row:
+                            if isinstance(cell.value, datetime) and cell.value.date() <= yesterday:
+                                cell.fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
+                    logger.info(f"Highlighted past due dates in 'FULLY PAID' sheet for {report_type}")
+
+                    # Save the workbook to bytes
+                    report_output = io.BytesIO()
+                    report_wb.save(report_output)
+                    report_output.seek(0)
+                    logger.debug(f"Saved {report_type} workbook to bytes")
+
+                    # Add to ZIP file
+                    zipf.writestr(f"{report_type}_Report_{date_str}.xlsx", report_output.getvalue())
+                    logger.debug(f"Added {report_type} Excel file to ZIP")
+
+            zip_output.seek(0) 
+            logger.debug("Created ZIP file containing all Excel reports.")
 
             # Create a descriptive file name for the ZIP
-            zip_file_name: str = f"[pygrays]Sales_Aged_Balance_Report_{date_str}.zip"
+            zip_file_name: str = f"[pygrays]Sales_Aged_Balance_Reports_{date_str}.zip"
             logger.debug(f"Set output ZIP file name to '{zip_file_name}'.")
 
             # Set the data in the response object
