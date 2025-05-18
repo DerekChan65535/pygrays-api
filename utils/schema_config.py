@@ -12,10 +12,11 @@ from openpyxl import Workbook, worksheet
 logger = logging.getLogger(__name__)
 
 class SchemaField:
-    def __init__(self, field_type: str, required: bool = False, formats: Optional[List[str]] = None):
+    def __init__(self, field_type: str, required: bool = False, formats: Optional[List[str]] = None, number_format: Optional[str] = None):
         self.field_type = field_type
         self.required = required
         self.formats = formats or []
+        self.number_format = number_format
 
     def convert(self, value: Any) -> Any:
         if not value:
@@ -95,9 +96,9 @@ class ExportSchema(BaseSchema):
             headers = list(self.schema.keys())
             sheet.append(headers)
 
-            for item in data:
+            for row_idx, item in enumerate(data, start=2):
                 row_values = []
-                for col in headers:
+                for col_idx, col in enumerate(headers, start=1):
                     value = item.get(col, '')
                     if isinstance(value, decimal.Decimal):
                         try:
@@ -105,6 +106,9 @@ class ExportSchema(BaseSchema):
                         except (decimal.InvalidOperation, TypeError):
                             value = ''
                     row_values.append(value)
+                    # Apply number format if specified in the schema
+                    if col in self.schema and self.schema[col].number_format:
+                        sheet.cell(row=row_idx, column=col_idx).number_format = self.schema[col].number_format
                 sheet.append(row_values)
 
             logger.info(f'Exported {len(data)} rows to {sheet_name} sheet')
@@ -157,6 +161,65 @@ aging_report_daily_data_import_schema = ImportSchema({
     'Day29': SchemaField('float'),
     'Day30': SchemaField('float'),
     'Day31': SchemaField('float'),
+})
+
+aging_report_export_schema = ExportSchema({
+    'Classification': SchemaField('string'),
+    'Sale_No': SchemaField('string'),
+    'Description': SchemaField('string'),
+    'Division': SchemaField('string'),
+    'BDM': SchemaField('string'),
+    'Sale_Date': SchemaField('datetime'),
+    'Gross_Tot': SchemaField('float'),
+    'Delot_Ind': SchemaField('boolean'),
+    'Cheque_Date': SchemaField('datetime'),
+    'Day0': SchemaField('float'),
+    'Day1': SchemaField('float'),
+    'Day2': SchemaField('float'),
+    'Day3': SchemaField('float'),
+    'Day4': SchemaField('float'),
+    'Day5': SchemaField('float'),
+    'Day6': SchemaField('float'),
+    'Day7': SchemaField('float'),
+    'Day8': SchemaField('float'),
+    'Day9': SchemaField('float'),
+    'Day10': SchemaField('float'),
+    'Day11': SchemaField('float'),
+    'Day12': SchemaField('float'),
+    'Day13': SchemaField('float'),
+    'Day14': SchemaField('float'),
+    'Day15': SchemaField('float'),
+    'Day16': SchemaField('float'),
+    'Day17': SchemaField('float'),
+    'Day18': SchemaField('float'),
+    'Day19': SchemaField('float'),
+    'Day20': SchemaField('float'),
+    'Day21': SchemaField('float'),
+    'Day22': SchemaField('float'),
+    'Day23': SchemaField('float'),
+    'Day24': SchemaField('float'),
+    'Day25': SchemaField('float'),
+    'Day26': SchemaField('float'),
+    'Day27': SchemaField('float'),
+    'Day28': SchemaField('float'),
+    'Day29': SchemaField('float'),
+    'Day30': SchemaField('float'),
+    'Day31': SchemaField('float'),
+    'State': SchemaField('string'),
+    'State-Division Name': SchemaField('string'),
+    'Payment Days': SchemaField('integer'),
+    'Due Date': SchemaField('datetime', number_format='DD-MMM-YY'),
+    'Division Name': SchemaField('string'),
+    'Sub Division Name': SchemaField('string'),
+    'Gross Amount': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+    'Collected': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+    'To be Collected': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+    'Payable to Vendor': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+    'Month': SchemaField('string'),
+    'Year': SchemaField('integer'),
+    'Cheque Date Y/N': SchemaField('string'),
+    'Days Late for Vendors Pmt': SchemaField('integer'),
+    'Comments': SchemaField('string')
 })
 
 # Inventory Service Schemas

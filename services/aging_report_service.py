@@ -9,7 +9,7 @@ import openpyxl
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
-from utils.schema_config import aging_report_daily_data_import_schema, BaseSchema
+from utils.schema_config import aging_report_daily_data_import_schema, BaseSchema, ExportSchema, SchemaField, ImportSchema, aging_report_export_schema
 
 # Initialize logger with detailed configuration
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +18,67 @@ logger = logging.getLogger(__name__)
 
 class AgingReportService:
     # Use the schema from configuration
-    daily_data_import_schema: BaseSchema = aging_report_daily_data_import_schema
+    daily_data_import_schema: ImportSchema = aging_report_daily_data_import_schema
+    
+    # Define export schema for aging report with number formats
+    aging_report_export_schema = ExportSchema({
+        'Classification': SchemaField('string'),
+        'Sale_No': SchemaField('string'),
+        'Description': SchemaField('string'),
+        'Division': SchemaField('string'),
+        'BDM': SchemaField('string'),
+        'Sale_Date': SchemaField('datetime'),
+        'Gross_Tot': SchemaField('float'),
+        'Delot_Ind': SchemaField('boolean'),
+        'Cheque_Date': SchemaField('datetime'),
+        'Day0': SchemaField('float'),
+        'Day1': SchemaField('float'),
+        'Day2': SchemaField('float'),
+        'Day3': SchemaField('float'),
+        'Day4': SchemaField('float'),
+        'Day5': SchemaField('float'),
+        'Day6': SchemaField('float'),
+        'Day7': SchemaField('float'),
+        'Day8': SchemaField('float'),
+        'Day9': SchemaField('float'),
+        'Day10': SchemaField('float'),
+        'Day11': SchemaField('float'),
+        'Day12': SchemaField('float'),
+        'Day13': SchemaField('float'),
+        'Day14': SchemaField('float'),
+        'Day15': SchemaField('float'),
+        'Day16': SchemaField('float'),
+        'Day17': SchemaField('float'),
+        'Day18': SchemaField('float'),
+        'Day19': SchemaField('float'),
+        'Day20': SchemaField('float'),
+        'Day21': SchemaField('float'),
+        'Day22': SchemaField('float'),
+        'Day23': SchemaField('float'),
+        'Day24': SchemaField('float'),
+        'Day25': SchemaField('float'),
+        'Day26': SchemaField('float'),
+        'Day27': SchemaField('float'),
+        'Day28': SchemaField('float'),
+        'Day29': SchemaField('float'),
+        'Day30': SchemaField('float'),
+        'Day31': SchemaField('float'),
+        'State': SchemaField('string'),
+        'State-Division Name': SchemaField('string'),
+        'Payment Days': SchemaField('integer'),
+        'Due Date': SchemaField('datetime', number_format='DD-MMM-YY'),
+        'Division Name': SchemaField('string'),
+        'Sub Division Name': SchemaField('string'),
+        'Gross Amount': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+        'Collected': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+        'To be Collected': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+        'Payable to Vendor': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
+        'Month': SchemaField('string'),
+        'Year': SchemaField('integer'),
+        'Cheque Date Y/N': SchemaField('string'),
+        'Days Late for Vendors Pmt': SchemaField('integer'),
+        'Comments': SchemaField('string')
+    })
 
     @staticmethod
     def parse_date_with_formats(date_string: str, formats: List[str]) -> Optional[datetime]:
@@ -561,51 +621,15 @@ class AgingReportService:
                     tables_sheet.cell(row=row_idx, column=col_idx).value = value
             logger.debug("Finished copying data to Tables sheet.")
 
-            # Add headers to template sheet
-            if template_sheet:
-                for i, header in enumerate(headers, 1):
-                    template_sheet.cell(row=1, column=i).value = header
-            logger.debug(f"Added {len(headers)} headers to '---DATA---' sheet.")
-
-            # Define column indices for formatting (1-based)
-            # Ensure these header names exactly match those in your `headers` list
-            col_gross_amount_idx: int = headers.index("Gross Amount") + 1
-            col_collected_idx: int = headers.index("Collected") + 1
-            col_tbc_idx: int = headers.index("To be Collected") + 1
-            col_ptv_idx: int = headers.index("Payable to Vendor") + 1
-            col_due_date_idx: int = headers.index("Due Date") + 1
-            
-            custom_number_format: str = "_(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)"
-            date_format_dd_mmm_yy: str = "DD-MMM-YY"
-            logger.debug("Defined column indices and formats for output workbook.")
-
-            # Append all processed rows to template
-            current_row_excel: int = 2 # Start from row 2 for data
-            for row_dict in all_processed_data:
-                row_values: List[Any] = []
-                for header_key in headers: 
-                    val = row_dict.get(header_key, None)
-                    # Ensure datetime objects are naive if they are timezone-aware, or handle as needed
-                    if isinstance(val, datetime) and val.tzinfo is not None:
-                        val = val.replace(tzinfo=None) # Example: make naive
-                    row_values.append(val)
-                if template_sheet:
-                    template_sheet.append(row_values)
-
-                    # Apply formatting for specific columns in the current row
-                    template_sheet.cell(row=current_row_excel, column=col_gross_amount_idx).number_format = custom_number_format
-                    template_sheet.cell(row=current_row_excel, column=col_collected_idx).number_format = custom_number_format
-                    template_sheet.cell(row=current_row_excel, column=col_tbc_idx).number_format = custom_number_format
-                    template_sheet.cell(row=current_row_excel, column=col_ptv_idx).number_format = custom_number_format
-                    
-                    # Apply date format for Due Date
-                    # Check if the cell actually contains a date (it might be '' if Due Date couldn't be calculated)
-                    due_date_val = template_sheet.cell(row=current_row_excel, column=col_due_date_idx).value
-                    if isinstance(due_date_val, datetime):
-                        template_sheet.cell(row=current_row_excel, column=col_due_date_idx).number_format = date_format_dd_mmm_yy
-                    
-                    current_row_excel += 1
-            logger.info(f"Appended {len(all_processed_data)} rows to '---DATA---' sheet with formatting applied.")
+            # Use the export schema to write data to the template sheet
+            errors_export: List[str] = []
+            success = aging_report_export_schema.export_data(all_processed_data, template_wb, '---DATA---', errors_export)
+            if not success:
+                logger.error(f"Failed to export data to '---DATA---' sheet: {errors_export}")
+                errors.extend(errors_export)
+                self._handle_errors(errors, response)
+                return response
+            logger.info(f"Exported {len(all_processed_data)} rows to '---DATA---' sheet using export schema.")
 
             # Save the workbook to bytes
             output: io.BytesIO = io.BytesIO()
