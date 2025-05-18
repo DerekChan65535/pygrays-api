@@ -196,11 +196,11 @@ class AgingReportService:
             for row in data_rows:
                 if all(i < len(row) for i in div_state_days_indices): # Ensure all indices are within row bounds
                     raw_row_list = [row[div_state_days_indices[0]], row[div_state_days_indices[1]], row[div_state_days_indices[2]]]
-                    entry = dict(zip(division_state_days_headers, raw_row_list))
+                    entry: Dict[str, Union[str, int, None]] = dict(zip(division_state_days_headers, raw_row_list))
                     try:
                         days_value_str = str(entry.get("Days", "")).strip()
-                        if days_value_str:  # Ensure not empty string
-                            entry["Days"] = int(float(days_value_str))  # Convert to float first for robustness, then int
+                        if days_value_str:
+                            entry["Days"] = int(days_value_str)
                         else:
                             entry["Days"] = None 
                     except ValueError:
