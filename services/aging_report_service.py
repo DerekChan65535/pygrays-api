@@ -9,6 +9,7 @@ import openpyxl
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
+from utils.schema_config import aging_report_daily_data_import_schema
 
 # Initialize logger with detailed configuration
 logging.basicConfig(level=logging.INFO)
@@ -16,50 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 class AgingReportService:
-    # Define the schema for daily data import with types and formats
-    daily_data_import_schema: Dict[str, Dict[str, Any]] = {
-        "Classification": {"type": "string", "required": False},
-        "Sale_No": {"type": "string", "required": True},
-        "Description": {"type": "string", "required": False},
-        "Division": {"type": "string", "required": True},
-        "BDM": {"type": "string", "required": False},
-        "Sale_Date": {"type": "datetime", "formats": ["%d/%m/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y"], "required": False},
-        "Gross_Tot": {"type": "float", "required": True},
-        "Delot_Ind": {"type": "boolean", "required": False},
-        "Cheque_Date": {"type": "datetime", "formats": ["%d/%m/%Y %H:%M", "%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y"], "required": False},
-        "Day0": {"type": "float", "required": False},
-        "Day1": {"type": "float", "required": False},
-        "Day2": {"type": "float", "required": False},
-        "Day3": {"type": "float", "required": False},
-        "Day4": {"type": "float", "required": False},
-        "Day5": {"type": "float", "required": False},
-        "Day6": {"type": "float", "required": False},
-        "Day7": {"type": "float", "required": False},
-        "Day8": {"type": "float", "required": False},
-        "Day9": {"type": "float", "required": False},
-        "Day10": {"type": "float", "required": False},
-        "Day11": {"type": "float", "required": False},
-        "Day12": {"type": "float", "required": False},
-        "Day13": {"type": "float", "required": False},
-        "Day14": {"type": "float", "required": False},
-        "Day15": {"type": "float", "required": False},
-        "Day16": {"type": "float", "required": False},
-        "Day17": {"type": "float", "required": False},
-        "Day18": {"type": "float", "required": False},
-        "Day19": {"type": "float", "required": False},
-        "Day20": {"type": "float", "required": False},
-        "Day21": {"type": "float", "required": False},
-        "Day22": {"type": "float", "required": False},
-        "Day23": {"type": "float", "required": False},
-        "Day24": {"type": "float", "required": False},
-        "Day25": {"type": "float", "required": False},
-        "Day26": {"type": "float", "required": False},
-        "Day27": {"type": "float", "required": False},
-        "Day28": {"type": "float", "required": False},
-        "Day29": {"type": "float", "required": False},
-        "Day30": {"type": "float", "required": False},
-        "Day31": {"type": "float", "required": False},
-    }
+    # Use the schema from configuration
+    daily_data_import_schema: Dict[str, Dict[str, Any]] = aging_report_daily_data_import_schema
 
     @staticmethod
     def parse_date_with_formats(date_string: str, formats: List[str]) -> Optional[datetime]:
@@ -326,12 +285,12 @@ class AgingReportService:
                     continue
 
                 # Process rows using the import schema
-                daily_data: List[Dict[str, Any]] = []
+                daily_data: List[Dict[str, Any]] = self.daily_data_import_schema.import_data(data_file.content, errors)
                 row_count: int = 0
                 conversion_errors: int = 0
 
                 logger.info(f"Beginning row processing for {data_file.name}")
-                for row_dict in daily_data_reader:
+                for row_dict in daily_data:
                     row_count += 1
                     if row_count % 100 == 0:
                         logger.debug(f"Processed {row_count} rows from {data_file.name}")

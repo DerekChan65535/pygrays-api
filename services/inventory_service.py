@@ -7,6 +7,14 @@ from typing import List, Tuple, Dict, Optional
 from openpyxl import Workbook
 from models.response_base import ResponseBase
 from models.file_model import FileModel
+from utils.schema_config import (
+    inventory_dropship_sales_schema as inventory_dropship_sales_import_schema,
+    inventory_deals_schema as inventory_deals_import_schema,
+    inventory_uom_mapping_schema as inventory_uom_mapping_import_schema,
+    inventory_dropship_sales_schema as inventory_dropship_sales_export_schema,
+    inventory_mixed_export_schema,
+    inventory_wine_export_schema
+)
 
 import decimal
 
@@ -14,136 +22,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class InventoryService:
-    # Define required columns with their expected data types
-    dropship_sales_import_schema = {
-        "Customer": str,
-        "AX_ProductCode": str,
-        "GST": str,
-        "Units": int,
-        "Price": decimal.Decimal,
-        "Amount": decimal.Decimal,
-        "SaleNo": str,
-        "VendorNo": str,
-        "ItemNo": str,
-        "Description": str,
-        "Serial_No": str,
-        "Vendor_Ref_No": str,
-        "DropShipper": str,
-        "Consignment": str,
-        "DealNo": str,
-        "Column1": str,
-        "BP": decimal.Decimal,
-        "SaleType": str,
-        "FreightCodeDescription": str
-    }
-
-    deals_import_schema = {
-        "Customer": str,
-        "AX_ProductCode": str,
-        "GST": str,
-        "Units": int,
-        "Price": decimal.Decimal,
-        "Amount": decimal.Decimal,
-        "SaleNo": str,
-        "VendorNo": str,
-        "ItemNo": str,
-        "Description": str,
-        "Serial_No": str,
-        "Vendor_Ref_No": str,
-        "DropShipper": str,
-        "Consignment": str,
-        "DealNo": str,
-        "Column1": str,
-        "BP": decimal.Decimal,
-        "SaleType": str,
-        "DivisionCode": str,
-        "DivisionDescription": str,
-        "FreightCodeDescription": str
-    }
-
-
-
-
-    # Note: uom_columns_schema is defined but not fully used in the original code.
-    # For mapping, we only need "Item" and "UOM", so we'll define a specific schema for that.
-    uom_mapping_import_schema = {
-        "Item": str,
-        "UOM": decimal.Decimal
-    }
-
-    dropship_sales_export_schema = {
-        "Customer": str,
-        "AX_ProductCode": str,
-        "GST": str,
-        "Units": int,
-        "Price": decimal.Decimal,
-        "Amount": decimal.Decimal,
-        "SaleNo": str,
-        "VendorNo": str,
-        "ItemNo": str,
-        "Description": str,
-        "Serial_No": str,
-        "Vendor_Ref_No": str,
-        "DropShipper": str,
-        "Consignment": str,
-        "DealNo": str,
-        "Column1": str,
-        "BP": decimal.Decimal,
-        "SaleType": str,
-        "FreightCodeDescription": str
-    }
-
-    mixed_export_schema = {
-        "Customer": str,
-        "AX_ProductCode": str,
-        "Per_Unit_Cost": decimal.Decimal,
-        "Units": int,
-        "Price": decimal.Decimal,
-        "Amount": decimal.Decimal,
-        "SaleNo": str,
-        "VendorNo": str,
-        "ItemNo": str,
-        "Description": str,
-        "Serial_No": str,
-        "COGS": decimal.Decimal,
-        "SALE_EX_GST": decimal.Decimal,
-        "BP_EX_GST": decimal.Decimal,
-        "Vendor_Ref_No": str,
-        "DropShipper": str,
-        "Consignment": str,
-        "DealNo": str,
-        "Column1": str,
-        "BP": decimal.Decimal,
-        "SaleType": str,
-        "FreightCodeDescription": str
-    }
-
-    wine_export_schema = {
-        "Customer": str,
-        "AX_ProductCode": str,
-        "Per_Unit_Cost": decimal.Decimal,
-        "Units": int,
-        "Price": decimal.Decimal,
-        "Amount": decimal.Decimal,
-        "SaleNo": str,
-        "VendorNo": str,
-        "ItemNo": str,
-        "Description": str,
-        "Serial_No": str,
-        "COGS": decimal.Decimal,
-        "SALE_EX_GST": decimal.Decimal,
-        "BP_EX_GST": decimal.Decimal,
-        "Vendor_Ref_No": str,
-        "DropShipper": str,
-        "Consignment": str,
-        "DealNo": str,
-        "Column1": str,
-        "BP": decimal.Decimal,
-        "SaleType": str,
-        "DivisionCode": str,
-        "DivisionDescription": str,
-        "FreightCodeDescription": str
-    }
+    # Use schemas from configuration
+    dropship_sales_import_schema = inventory_dropship_sales_import_schema
+    deals_import_schema = inventory_deals_import_schema
+    uom_mapping_import_schema = inventory_uom_mapping_import_schema
+    dropship_sales_export_schema = inventory_dropship_sales_export_schema
+    mixed_export_schema = inventory_mixed_export_schema
+    wine_export_schema = inventory_wine_export_schema
 
     def __init__(self):
         pass
@@ -369,8 +254,9 @@ class InventoryService:
             mixed_sheet = new_workbook.create_sheet("Mixed")
             wine_sheet = new_workbook.create_sheet("Wine")
             
-            # Remove the default sheet
-            new_workbook.remove(new_workbook.active)
+            # Remove the default sheet if it exists
+            if 'Sheet' in new_workbook.sheetnames:
+                del new_workbook['Sheet']
             
             return new_workbook
         except Exception as e:
@@ -391,37 +277,25 @@ class InventoryService:
             True if successful, False if errors occurred.
         """
         try:
-            sheet = workbook["Dropship Sales"]
-            
-            # Use export schema for column names in consistent order
-            headers = list(self.dropship_sales_export_schema.keys())
-            
-            # Write header row 
+            sheet = workbook['Dropship Sales']
+            headers = list(self.dropship_sales_export_schema.schema.keys())
             sheet.append(headers)
-            
-            # Write data rows using the required column order
             for item in data_dicts:
-                # Extract values from item and apply rounding for decimal fields
                 row_values = []
                 for col in headers:
-                    value = item.get(col, "")
-                    
-                    # Apply rounding for decimal fields
+                    value = item.get(col, '')
                     if isinstance(value, decimal.Decimal):
                         try:
                             value = value.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
                         except (decimal.InvalidOperation, TypeError):
-                            value = ""
-                            
+                            value = ''
                     row_values.append(value)
-                    
                 sheet.append(row_values)
-                
-            logger.info(f"Wrote {len(data_dicts)} rows to Dropship Sales sheet")
+            logger.info(f'Wrote {len(data_dicts)} rows to Dropship Sales sheet')
             return True
         except Exception as e:
-            errors.append(f"Error writing to Dropship Sales sheet: {str(e)}")
-            logger.error("Error writing to Dropship Sales sheet", exc_info=True)
+            errors.append(f'Error writing to Dropship Sales sheet: {str(e)}')
+            logger.error('Error writing to Dropship Sales sheet', exc_info=True)
             return False
             
     def _write_mixed_sheet(self, workbook: Workbook, mixed_deals: List[Dict], errors: List[str]) -> bool:
@@ -437,35 +311,25 @@ class InventoryService:
             True if successful, False if errors occurred.
         """
         try:
-            sheet = workbook["Mixed"]
-            
-            # Use the mixed export schema for headers
-            headers = list(self.mixed_export_schema.keys())
+            sheet = workbook['Mixed']
+            headers = list(self.mixed_export_schema.schema.keys())
             sheet.append(headers)
-    
-            # Write mixed deals data to the mixed sheet
             for item in mixed_deals:
                 row_values = []
-                
                 for col in headers:
-                    value = item.get(col, "")
-                    
-                    # Apply rounding for decimal fields
+                    value = item.get(col, '')
                     if isinstance(value, decimal.Decimal):
                         try:
                             value = value.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
                         except (decimal.InvalidOperation, TypeError):
-                            value = ""
-                            
+                            value = ''
                     row_values.append(value)
-                        
                 sheet.append(row_values)
-                
-            logger.info(f"Wrote {len(mixed_deals)} rows to Mixed sheet")
+            logger.info(f'Wrote {len(mixed_deals)} rows to Mixed sheet')
             return True
         except Exception as e:
-            errors.append(f"Error writing to Mixed sheet: {str(e)}")
-            logger.error("Error writing to Mixed sheet", exc_info=True)
+            errors.append(f'Error writing to Mixed sheet: {str(e)}')
+            logger.error('Error writing to Mixed sheet', exc_info=True)
             return False
     
     def _write_wine_sheet(self, workbook: Workbook, data_dicts: List[Dict], errors: List[str]) -> bool:
@@ -481,40 +345,28 @@ class InventoryService:
             True if successful, False if errors occurred.
         """
         try:
-            sheet = workbook["Wine"]
-            
-            # Use the wine export schema for headers
-            headers = list(self.wine_export_schema.keys())
-            
-            # Write header to wine sheet
+            sheet = workbook['Wine']
+            headers = list(self.wine_export_schema.schema.keys())
             sheet.append(headers)
-            
-            # Write data rows with applied rounding
             for item in data_dicts:
                 row_values = []
-                
                 for col in headers:
-                    value = item.get(col, "")
-                    
-                    # Apply rounding for decimal fields
+                    value = item.get(col, '')
                     if isinstance(value, decimal.Decimal):
                         try:
                             value = value.quantize(decimal.Decimal('0.01'), rounding=decimal.ROUND_HALF_UP)
                         except (decimal.InvalidOperation, TypeError):
-                            value = ""
-                            
+                            value = ''
                     row_values.append(value)
-                        
                 sheet.append(row_values)
-                
-            logger.info(f"Wrote {len(data_dicts)} rows to Wine sheet")
+            logger.info(f'Wrote {len(data_dicts)} rows to Wine sheet')
             return True
         except Exception as e:
-            errors.append(f"Error writing to Wine sheet: {str(e)}")
-            logger.error("Error writing to Wine sheet", exc_info=True)
+            errors.append(f'Error writing to Wine sheet: {str(e)}')
+            logger.error('Error writing to Wine sheet', exc_info=True)
             return False
 
-    def _load_csv_data(self, file: FileModel, schema: Dict[str, type], errors: List[str]) -> List[Dict]:
+    def _load_csv_data(self, file: FileModel, schema: object, errors: List[str]) -> List[Dict]:
         """
         Load and validate CSV data based on a given schema.
     
@@ -556,7 +408,7 @@ class InventoryService:
                             if expected_type == decimal.Decimal:
                                 try:
                                     # remove anything but digits and decimal point from the string
-                                    value = re.sub(r'[^\d.]', '', value)
+                                    value = re.sub(r'[^.]', '', value)
                                     value = decimal.Decimal(value)
                                 except decimal.InvalidOperation:
                                     errors.append(f"Row {row_index}, column '{header_name}' in {file.name}: invalid decimal value '{value}'")
@@ -565,7 +417,7 @@ class InventoryService:
                             elif expected_type == int:
                                 try:
                                     # remove anything but digits from the string
-                                    value = re.sub(r'[^\d]', '', value)
+                                    value = re.sub(r'\D', '', value)
                                     value = int(value) if value else 0
                                 except ValueError:
                                     errors.append(f"Row {row_index}, column '{header_name}' in {file.name}: invalid integer value '{value}'")
@@ -752,7 +604,7 @@ class InventoryService:
             return response
         
         # Process DropshipSales files
-        (dropship_sales_data, dropship_month, dropship_year) = self._process_dropship_sales_files(txt_files, errors)
+        dropship_sales_data, dropship_month, dropship_year = self._process_dropship_sales_files(txt_files, errors)
         if self._handle_errors(errors, response):
             return response
             
@@ -787,13 +639,13 @@ class InventoryService:
         logger.info("Stage 2: Generating and calculating extra data")
         
         # Extract mixed deals for separate processing
-        mixed_deals = self._get_mixed_deals(dropship_sales_data)
+        mixed_deals = self._get_mixed_deals(dropship_sales_data or [])
     
         # Add Per_Unit_Cost to all data sets
         if mixed_deals:
-            self._add_per_unit_cost(mixed_deals, unit_with_cost)
+            self._add_per_unit_cost(mixed_deals, unit_with_cost or {})
         if deals_data:
-            self._add_per_unit_cost(deals_data, unit_with_cost)
+            self._add_per_unit_cost(deals_data, unit_with_cost or {})
             
         # Calculate additional fields (COGS, SALE_EX_GST, BP_EX_GST)
         if mixed_deals:
@@ -807,40 +659,44 @@ class InventoryService:
         logger.info("Stage 3: Preparing Excel file and writing data")
         
         # Prepare workbook with necessary sheets
-        new_workbook = self._prepare_workbook(errors)
-        if self._handle_errors(errors, response):
-            return response
+        new_workbook_opt = self._prepare_workbook(errors)
+        if not new_workbook_opt:
+            if self._handle_errors(errors, response):
+                return response
+        new_workbook = new_workbook_opt
             
         # Write data to Dropship Sales sheet
-        if not self._write_dropship_sales_sheet(new_workbook, dropship_sales_data, errors):
-            if self._handle_errors(errors, response):
-                return response
+        if dropship_sales_data and new_workbook:
+            if not self._write_dropship_sales_sheet(new_workbook, dropship_sales_data, errors):
+                if self._handle_errors(errors, response):
+                    return response
             
         # Write mixed deals data to Mixed sheet
-        if not self._write_mixed_sheet(new_workbook, mixed_deals, errors):
-            if self._handle_errors(errors, response):
-                return response
+        if mixed_deals and new_workbook:
+            if not self._write_mixed_sheet(new_workbook, mixed_deals, errors):
+                if self._handle_errors(errors, response):
+                    return response
             
         # Write deals data to Wine sheet
-        if deals_data and not self._write_wine_sheet(new_workbook, deals_data, errors):
-            if self._handle_errors(errors, response):
-                return response
+        if deals_data and new_workbook:
+            if not self._write_wine_sheet(new_workbook, deals_data, errors):
+                if self._handle_errors(errors, response):
+                    return response
             
         # Save the workbook and prepare response
         try:
             # Create a descriptive file name
             month_name = self._get_month_name(file_month)
-            file_name = f"{month_name}_All_Sales_{file_year}.xlsx"
-            
+            file_name = f'{month_name}_All_Sales_{file_year}.xlsx'
             workbook_bytes = io.BytesIO()
-            new_workbook.save(workbook_bytes)
-            workbook_binary = workbook_bytes.getvalue()
-            
-            response.data = FileModel(name=file_name, content=workbook_binary)
-            logger.info(f"Excel workbook saved as {file_name} with Dropship Sales, Mixed, and Wine sheets")
+            if new_workbook:
+                new_workbook.save(workbook_bytes)
+                workbook_binary = workbook_bytes.getvalue()
+                response.data = FileModel(name=file_name, content=workbook_binary)
+                logger.info(f'Excel workbook saved as {file_name} with Dropship Sales, Mixed, and Wine sheets')
             return response
         except Exception as e:
-            error_msg = f"Error saving workbook: {str(e)}"
+            error_msg = f'Error saving workbook: {str(e)}'
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
             self._handle_errors(errors, response)
