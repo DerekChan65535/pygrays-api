@@ -652,7 +652,7 @@ class AgingReportService:
                     elif report_type == 'DivINDUSTRIAL':
                         file_name = f"All Sales Aged Balance Report {date_str} - Industrial.xlsx"
                     elif report_type == 'DivCONSUMER':
-                        file_name = f"All Sales Aged Balance Report {date_str} 1156 - Consumer.xlsx"
+                        file_name = f"All Sales Aged Balance Report {date_str} - Consumer.xlsx"
                     
                     # Add to ZIP file
                     zipf.writestr(file_name, report_output.getvalue())
