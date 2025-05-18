@@ -32,7 +32,7 @@ async def main():
     # You can do something with the response here, e.g., print(response)
     if response.is_success and response.data:
         output_filename = response.data.name
-        output_path = fr"Z:\Ariel\ageing\{output_filename}"  # Use raw string for Windows path
+        output_path = fr"Z:\Ariel\aging_data_2\{output_filename}"  # Use raw string for Windows path
         try:
             with open(output_path, "wb") as f:
                 f.write(response.data.content)
