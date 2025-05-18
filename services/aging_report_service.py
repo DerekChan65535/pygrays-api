@@ -1,19 +1,14 @@
-import io
 import csv
-import time
+import io
 import logging
-import sys
-import traceback
+import time
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any, Union
 
 import openpyxl
-from fastapi import UploadFile, HTTPException
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
-from services.multi_logging import LoggingService, LogConfig
-
 
 # Initialize logger with detailed configuration
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class AgingReportService:
     # Define the schema for daily data import with types and formats
-    daily_data_import_schema = {
+    daily_data_import_schema: Dict[str, Dict[str, Any]] = {
         "Classification": {"type": "string", "required": False},
         "Sale_No": {"type": "string", "required": True},
         "Description": {"type": "string", "required": False},
@@ -67,7 +62,7 @@ class AgingReportService:
     }
 
     @staticmethod
-    def parse_date_with_formats(date_string: str, formats: list) -> datetime:
+    def parse_date_with_formats(date_string: str, formats: List[str]) -> Optional[datetime]:
         """
         Try parsing a date string using multiple formats
         
@@ -127,7 +122,7 @@ class AgingReportService:
 
     def _load_and_process_mapping_file(
         self, mapping_file: FileModel, errors: List[str]
-    ) -> Optional[Tuple[List[dict], List[dict], List[dict]]]:
+    ) -> Optional[Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, Union[str, int, None]]]]]:
         """
         Loads and processes the mapping file to create lookup dictionaries.
         Returns a tuple of dictionaries or None if a critical error occurs.
@@ -146,9 +141,9 @@ class AgingReportService:
             errors.append(error_msg)
             return None
 
-        division_to_subdivision: List[dict] = []
-        divisionno_to_division: List[dict] = []
-        division_state_days: List[dict] = []
+        division_to_subdivision: List[Dict[str, str]] = []
+        divisionno_to_division: List[Dict[str, str]] = []
+        division_state_days: List[Dict[str, Union[str, int, None]]] = []
         
         mapping_errors_count = 0  # For potential future use to count row-specific parsing errors
 
@@ -166,10 +161,10 @@ class AgingReportService:
 
         # The col 0 and 1 of the mapping file is for Division and Sub Division
         try:
-            div_subdiv_header_indices = (0, 1)
-            division_subdivision_headers = [mapping_file_headers[i] for i in div_subdiv_header_indices]
-            division_to_subdivision_raw = [[row[i] for i in div_subdiv_header_indices if i < len(row)] for row in data_rows]
-            division_to_subdivision = [
+            div_subdiv_header_indices: Tuple[int, int] = (0, 1)
+            division_subdivision_headers: List[str] = [mapping_file_headers[i] for i in div_subdiv_header_indices]
+            division_to_subdivision_raw: List[List[str]] = [[row[i] for i in div_subdiv_header_indices if i < len(row)] for row in data_rows]
+            division_to_subdivision: List[Dict[str, str]] = [
                 dict(zip(division_subdivision_headers, row_values))
                 for row_values in division_to_subdivision_raw
                 if len(row_values) == len(division_subdivision_headers) and all(row_values)
@@ -181,10 +176,10 @@ class AgingReportService:
 
         # The col 3 and 4 of the mapping file is for DivisionNo and Division
         try:
-            divno_div_header_indices = (3, 4)
-            divisionno_division_headers = [mapping_file_headers[i] for i in divno_div_header_indices]
-            divisionno_to_division_raw = [[row[i] for i in divno_div_header_indices if i < len(row)] for row in data_rows]
-            divisionno_to_division = [
+            divno_div_header_indices: Tuple[int, int] = (3, 4)
+            divisionno_division_headers: List[str] = [mapping_file_headers[i] for i in divno_div_header_indices]
+            divisionno_to_division_raw: List[List[str]] = [[row[i] for i in divno_div_header_indices if i < len(row)] for row in data_rows]
+            divisionno_to_division: List[Dict[str, str]] = [
                 dict(zip(divisionno_division_headers, row_values))
                 for row_values in divisionno_to_division_raw
                 if len(row_values) == len(divisionno_division_headers) and all(row_values)
@@ -195,8 +190,8 @@ class AgingReportService:
 
         # The col 6, 7, 9 of the mapping file is for Division Name, State, Days
         try:
-            div_state_days_indices = (6, 7, 9)
-            division_state_days_headers = [mapping_file_headers[i] for i in div_state_days_indices]
+            div_state_days_indices: Tuple[int, int, int] = (6, 7, 9)
+            division_state_days_headers: List[str] = [mapping_file_headers[i] for i in div_state_days_indices]
             
             for row in data_rows:
                 if all(i < len(row) for i in div_state_days_indices): # Ensure all indices are within row bounds
@@ -245,7 +240,7 @@ class AgingReportService:
                 Returns:
                     ResponseBase object with success status and FileModel data
                 """
-        method_start_time = time.time()
+        method_start_time: float = time.time()
         logger.info("=== Starting process_uploaded_file ===")
         logger.info(f"Received mapping file: {mapping_file.name} ({len(mapping_file.content)} bytes)")
         logger.info(f"Received {len(data_files)} data files")
@@ -254,20 +249,20 @@ class AgingReportService:
         for idx, file in enumerate(data_files):
             logger.info(f"Data file {idx+1}: {file.name} ({len(file.content)} bytes)")
 
-        errors = []
-        response = ResponseBase(is_success=True)
-        all_files_filtered_data = []
+        errors: List[str] = []
+        response: ResponseBase = ResponseBase(is_success=True)
+        all_files_filtered_data: List[Dict[str, Any]] = []
 
         try:
-            today = datetime.today()
-            date_str = today.strftime("%Y%m%d")
+            today: datetime = datetime.today()
+            date_str: str = today.strftime("%Y%m%d")
             logger.debug(f"Processing date: {today}, formatted as {date_str}")
 
             import re
             logger.debug("Imported re module for regex operations")
 
             # Headers for template sheet
-            headers = [
+            headers: List[str] = [
                 "Classification", "Sale_No", "Description", "Division", "BDM", "Sale_Date",
                 "Gross_Tot", "Delot_Ind", "Cheque_Date", "Day0", "Day1", "Day2", "Day3",
                 "Day4", "Day5", "Day6", "Day7", "Day8", "Day9", "Day10", "Day11",
@@ -281,7 +276,7 @@ class AgingReportService:
 
             # Check if data files are provided
             if not data_files or len(data_files) == 0:
-                error_msg = "No data files provided"
+                error_msg: str = "No data files provided"
                 errors.append(error_msg)
                 logger.error(error_msg)
                 logger.info("Terminating processing due to missing data files")
@@ -289,15 +284,15 @@ class AgingReportService:
                 return response
 
             # Combined processed data from all files
-            all_processed_data = []
+            all_processed_data: List[Dict[str, Any]] = []
             logger.debug("Initialized empty list for all_processed_data")
 
             # Process each data file
-            file_count = len(data_files)
+            file_count: int = len(data_files)
             logger.info(f"Beginning processing of {file_count} data files")
 
             for file_idx, data_file in enumerate(data_files, 1):
-                file_start_time = time.time()
+                file_start_time: float = time.time()
                 logger.info(f"Processing file {file_idx}/{file_count}: {data_file.name}")
 
                 # Extract state from filename using regex pattern
@@ -305,35 +300,35 @@ class AgingReportService:
                 # 1. "Sales Aged Balance [state].csv" (space-separated)
                 # 2. "SalesAgedBalance[state].csv" (camel case)
                 # 3. "Sales_Aged_Balance_[state].csv" (underscore-separated)
-                state_match = re.search(r'(?:Sales[ _]?Aged[ _]?Balance[ _]?|SalesAgedBalance)(\w+)\.csv', data_file.name, re.IGNORECASE)
+                state_match: Optional[re.Match] = re.search(r'(?:Sales[ _]?Aged[ _]?Balance[ _]?|SalesAgedBalance)(\w+)\.csv', data_file.name, re.IGNORECASE)
                 if not state_match:
-                    error_msg = (f"Unable to extract state from filename: {data_file.name}. Expected formats: "
+                    error_msg: str = (f"Unable to extract state from filename: {data_file.name}. Expected formats: "
                                 f"'Sales Aged Balance [state].csv', 'SalesAgedBalance[state].csv', or 'Sales_Aged_Balance_[state].csv'")
                     errors.append(error_msg)
                     logger.error(error_msg)
                     logger.warning(f"Skipping file {data_file.name} due to invalid filename format")
                     continue
 
-                state = state_match.group(1).upper()  # Convert to uppercase for consistency
+                state: str = state_match.group(1).upper()  # Convert to uppercase for consistency
                 logger.info(f"Extracted state '{state}' from filename {data_file.name}")
 
                 # Load data file (daily sheet) using DictReader for direct dictionary creation
                 logger.debug(f"Decoding content of {data_file.name}")
                 try:
-                    daily_data_str = data_file.content.decode('utf-8')
+                    daily_data_str: str = data_file.content.decode('utf-8')
                     logger.debug(f"Successfully decoded file content ({len(daily_data_str)} characters)")
                     daily_data_reader = csv.DictReader(io.StringIO(daily_data_str))
                     logger.debug(f"Created CSV DictReader for file {data_file.name}")
                 except Exception as decode_error:
-                    error_msg = f"Error decoding file {data_file.name}: {str(decode_error)}"
+                    error_msg: str = f"Error decoding file {data_file.name}: {str(decode_error)}"
                     logger.error(error_msg, exc_info=True)
                     errors.append(error_msg)
                     continue
 
                 # Process rows using the import schema
-                daily_data = []
-                row_count = 0
-                conversion_errors = 0
+                daily_data: List[Dict[str, Any]] = []
+                row_count: int = 0
+                conversion_errors: int = 0
 
                 logger.info(f"Beginning row processing for {data_file.name}")
                 for row_dict in daily_data_reader:
@@ -342,8 +337,8 @@ class AgingReportService:
                         logger.debug(f"Processed {row_count} rows from {data_file.name}")
 
                     # Apply schema-based conversions
-                    converted_row = {}
-                    row_errors = 0
+                    converted_row: Dict[str, Any] = {}
+                    row_errors: int = 0
 
                     for field, value in row_dict.items():
                         # Skip if field is not in schema
@@ -362,13 +357,13 @@ class AgingReportService:
                             logger.warning(f"Missing required field '{field}' in row {row_count}")
                             row_errors += 1
 
-                        field_type = field_schema.get("type")
+                        field_type: str = field_schema.get("type")
                         try:
                             # Convert based on field type
                             if field_type == "datetime" and value:
                                 # Use the helper method for date parsing
-                                date_formats = field_schema.get("formats", ["%Y-%m-%d"])
-                                parsed_date = self.parse_date_with_formats(value, date_formats)
+                                date_formats: List[str] = field_schema.get("formats", ["%Y-%m-%d"])
+                                parsed_date: Optional[datetime] = self.parse_date_with_formats(value, date_formats)
                                 converted_row[field] = parsed_date if parsed_date else value
                                 if parsed_date is None:
                                     logger.warning(f"Could not parse date '{value}' for field '{field}' in row {row_count}")
@@ -407,8 +402,8 @@ class AgingReportService:
 
                 # Clean data: Filter out rows based on conditions
                 logger.info(f"Filtering data for {data_file.name}, starting with {len(daily_data)} rows")
-                filtered_daily_data = []
-                excluded_count = {
+                filtered_daily_data: List[Dict[str, Any]] = []
+                excluded_count: Dict[str, int] = {
                     "cheque_date": 0,
                     "zero_gross": 0,
                     "cancellation": 0,
@@ -427,10 +422,10 @@ class AgingReportService:
                 # -------------------------------------------------------------------------
                 for row_idx, row_dict in enumerate(daily_data):
                     # Extract key fields needed for filtering decisions
-                    cheque_date = row_dict.get('Cheque_Date')
-                    gross_tot = row_dict.get('Gross_Tot')
-                    description = row_dict.get('Description')
-                    classification = row_dict.get('Classification')
+                    cheque_date: Optional[datetime] = row_dict.get('Cheque_Date')
+                    gross_tot: Optional[float] = row_dict.get('Gross_Tot')
+                    description: Optional[str] = row_dict.get('Description')
+                    classification: Optional[str] = row_dict.get('Classification')
                 
                     # Skip rows that meet exclusion criteria
                     if cheque_date is not None:
@@ -487,37 +482,37 @@ class AgingReportService:
             division_to_subdivision, divisionno_to_division, division_state_days = mapping_data
 
             # Process each row and compute new columns
-            new_rows = []
+            new_rows: List[Dict[str, Any]] = []
             for row_dict in all_files_filtered_data:
-                new_row = row_dict.copy()
+                new_row: Dict[str, Any] = row_dict.copy()
                 if not row_dict.get('Classification'):
                     new_rows.append(new_row)
                     continue
 
                 # Column 43 (AQ): Concatenate State and Division Name
-                state_val = row_dict.get('State') or ""
-                division_name = ""  # Will be set in AT
+                state_val: str = row_dict.get('State') or ""
+                division_name: str = ""  # Will be set in AT
                 new_row['State-Division Name'] = f"{state_val}-{division_name}" if state_val else ""
 
                 # Column 46 (AT): Lookup Division from DivisionNo
-                division_no = row_dict.get('Division')
+                division_no: Union[str, int, None] = row_dict.get('Division')
                 # Find matching division entry
-                division_entry = next((item for item in divisionno_to_division if item.get("DivisionNo") == division_no), None)
+                division_entry: Optional[Dict[str, str]] = next((item for item in divisionno_to_division if item.get("DivisionNo") == division_no), None)
                 new_row['Division Name'] = division_entry.get("Division", "") if division_entry else ""
                 # Update AQ with Division Name
                 new_row['State-Division Name'] = f"{state_val}-{new_row['Division Name']}" if state_val and new_row[
                     'Division Name'] else ""
 
                 # Column 44 (AR): Lookup Payment Days
-                state_division = new_row['State-Division Name']
+                state_division: str = new_row['State-Division Name']
                 # Find matching entry for state-division
-                state_days_entry = next((item for item in division_state_days 
+                state_days_entry: Optional[Dict[str, Any]] = next((item for item in division_state_days 
                                         if f"{item.get('State')}-{item.get('Division Name')}" == state_division), None)
                 new_row['Payment Days'] = state_days_entry.get("Days", "") if state_days_entry else ""
 
                 # Column 45 (AS): Add Sale_Date and Payment Days
-                sale_date = row_dict.get('Sale_Date')
-                payment_days = new_row['Payment Days']
+                sale_date: Optional[datetime] = row_dict.get('Sale_Date')
+                payment_days: Union[int, str, None] = new_row['Payment Days']
                 if isinstance(sale_date, datetime) and isinstance(payment_days, int):
                     new_row['Due Date'] = sale_date + timedelta(days=payment_days)
                 else:
@@ -526,17 +521,17 @@ class AgingReportService:
                         logger.debug(f"Payment days '{payment_days}' is not an int for Sale_No {row_dict.get('Sale_No')}, Sale_Date '{sale_date}'. Due Date set to empty.")
 
                 # Column 47 (AU): Lookup Sub Division
-                division = new_row['Division Name']
+                division: Optional[str] = new_row['Division Name']
                 # Find matching subdivision entry
-                subdivision_entry = next((item for item in division_to_subdivision 
+                subdivision_entry: Optional[Dict[str, str]] = next((item for item in division_to_subdivision 
                                          if item.get("Division") == division), None)
                 new_row['Sub Division Name'] = subdivision_entry.get("Sub Division", "") if subdivision_entry else ""
 
                 # Column 48 (AV): Compute Gross Amount
-                delot_ind = str(row_dict.get('Delot_Ind', "")).upper() == "TRUE"
-                gross_tot = row_dict.get('Gross_Tot')
-                sale_no = row_dict.get('Sale_No')
-                current_gross_amount_num = 0.0
+                delot_ind: bool = str(row_dict.get('Delot_Ind', "")).upper() == "TRUE"
+                gross_tot: Union[float, int, None] = row_dict.get('Gross_Tot')
+                sale_no: Union[float, int, str, None] = row_dict.get('Sale_No')
+                current_gross_amount_num: float = 0.0
                 if delot_ind and isinstance(gross_tot, (int, float)) and isinstance(sale_no, (int, float)):
                     current_gross_amount_num = float(gross_tot - sale_no)
                 elif isinstance(gross_tot, (int, float)):
@@ -544,23 +539,23 @@ class AgingReportService:
                 new_row['Gross Amount'] = current_gross_amount_num
 
                 # Column 50 (AX): Get Day value for today - this becomes 'To be Collected'
-                day_num = today.day
-                day_key = f"Day{day_num}"
-                numeric_to_be_collected = 0.0
-                source_tbc_val = row_dict.get(day_key, None)
+                day_num: int = today.day
+                day_key: str = f"Day{day_num}"
+                numeric_to_be_collected: float = 0.0
+                source_tbc_val: Union[float, int, None] = row_dict.get(day_key, None)
                 if isinstance(source_tbc_val, (int, float)):
                     numeric_to_be_collected = float(source_tbc_val)
                 new_row['To be Collected'] = numeric_to_be_collected
 
                 # Column 49 (AW): Calculate 'Collected' = Gross Amount - To be Collected
                 # This definition is based on the desired output reconciliation.
-                collected_calc = 0.0
+                collected_calc: float = 0.0
                 if isinstance(current_gross_amount_num, (int, float)) and isinstance(numeric_to_be_collected, (int, float)):
                     collected_calc = current_gross_amount_num - numeric_to_be_collected
                 new_row['Collected'] = collected_calc
                 
                 # Column 51 (AY): Compute Payable to Vendor
-                payable_to_vendor_val_num = 0.0 
+                payable_to_vendor_val_num: float = 0.0 
                 # Logic: if Delot_Ind is TRUE and To Be Collected is 0, then Payable to Vendor = Gross Amount. Otherwise 0.
                 if delot_ind:
                     if numeric_to_be_collected == 0.0: 
@@ -596,7 +591,7 @@ class AgingReportService:
                     if new_row['Payable to Vendor'] == row_dict.get('Gross_Tot'):
                         cheque_date = row_dict.get('Cheque_Date')
                         if isinstance(cheque_date, datetime):
-                            days_diff = (today - cheque_date.date()).days
+                            days_diff: int = (today - cheque_date.date()).days
                             new_row['Days Late for Vendors Pmt'] = days_diff if days_diff > 0 else ""
                         else:
                             new_row['Days Late for Vendors Pmt'] = ""
@@ -621,9 +616,9 @@ class AgingReportService:
             # Populate the Tables sheet with original mapping data
             # Convert mapping file back to rows for the Tables sheet
             # We'll preserve the original structure since we're only changing how we read it
-            tables_data_str = mapping_file.content.decode('utf-8')
+            tables_data_str: str = mapping_file.content.decode('utf-8')
             tables_data_csv = csv.reader(io.StringIO(tables_data_str))
-            tables_data_rows = list(tables_data_csv)
+            tables_data_rows: List[List[str]] = list(tables_data_csv)
 
             logger.debug(f"Copying {len(tables_data_rows)} rows to Tables sheet in output workbook")
             for row_idx, row in enumerate(tables_data_rows, 1):
@@ -636,19 +631,19 @@ class AgingReportService:
 
             # Define column indices for formatting (1-based)
             # Ensure these header names exactly match those in your `headers` list
-            col_gross_amount_idx = headers.index("Gross Amount") + 1
-            col_collected_idx = headers.index("Collected") + 1
-            col_tbc_idx = headers.index("To be Collected") + 1
-            col_ptv_idx = headers.index("Payable to Vendor") + 1
-            col_due_date_idx = headers.index("Due Date") + 1
+            col_gross_amount_idx: int = headers.index("Gross Amount") + 1
+            col_collected_idx: int = headers.index("Collected") + 1
+            col_tbc_idx: int = headers.index("To be Collected") + 1
+            col_ptv_idx: int = headers.index("Payable to Vendor") + 1
+            col_due_date_idx: int = headers.index("Due Date") + 1
             
-            custom_number_format = "_(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)"
-            date_format_dd_mmm_yy = "DD-MMM-YY"
+            custom_number_format: str = "_(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)"
+            date_format_dd_mmm_yy: str = "DD-MMM-YY"
 
             # Append all processed rows to template
-            current_row_excel = 2 # Start from row 2 for data
+            current_row_excel: int = 2 # Start from row 2 for data
             for row_dict in all_processed_data:
-                row_values = []
+                row_values: List[Any] = []
                 for header_key in headers: 
                     val = row_dict.get(header_key, None)
                     # Ensure datetime objects are naive if they are timezone-aware, or handle as needed
@@ -673,12 +668,12 @@ class AgingReportService:
                 current_row_excel +=1
 
             # Save the workbook to bytes
-            output = io.BytesIO()
+            output: io.BytesIO = io.BytesIO()
             template_wb.save(output)
             output.seek(0)
 
             # Create a descriptive file name
-            file_name = f"Sales_Aged_Balance_Report_{date_str}_pygrays_api.xlsx"
+            file_name: str = f"Sales_Aged_Balance_Report_{date_str}_pygrays_api.xlsx"
 
             # Set the data in the response object
             response.data = FileModel(name=file_name, content=output.getvalue())
@@ -686,8 +681,8 @@ class AgingReportService:
 
         except Exception as e:
             # Log the error and return error response
-            end_time = time.time() - method_start_time
-            error_message = f"Error processing file: {str(e)}"
+            end_time: float = time.time() - method_start_time
+            error_message: str = f"Error processing file: {str(e)}"
             logger.error(error_message, exc_info=True)
             errors.append(error_message)
             self._handle_errors(errors, response)
