@@ -395,6 +395,7 @@ class AgingReportService:
             for row_dict in all_files_filtered_data:
                 new_row: Dict[str, Any] = row_dict.copy()
                 if not row_dict.get('Classification'):
+                    logger.debug(f"Skipping row without Classification: {row_dict.get('Sale_No', 'Unknown')}")
                     new_rows.append(new_row)
                     continue
 
@@ -402,6 +403,7 @@ class AgingReportService:
                 state_val: str = row_dict.get('State') or ""
                 division_name: str = ""  # Will be set in AT
                 new_row['State-Division Name'] = f"{state_val}-{division_name}" if state_val else ""
+                logger.debug(f"State-Division Name set to '{new_row['State-Division Name']}' for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 46 (AT): Lookup Division from DivisionNo
                 division_no: Union[str, int, None] = row_dict.get('Division')
@@ -409,8 +411,8 @@ class AgingReportService:
                 division_entry: Optional[Dict[str, str]] = next((item for item in divisionno_to_division if item.get("DivisionNo") == division_no), None)
                 new_row['Division Name'] = division_entry.get("Division", "") if division_entry else ""
                 # Update AQ with Division Name
-                new_row['State-Division Name'] = f"{state_val}-{new_row['Division Name']}" if state_val and new_row[
-                    'Division Name'] else ""
+                new_row['State-Division Name'] = f"{state_val}-{new_row['Division Name']}" if state_val and new_row['Division Name'] else ""
+                logger.debug(f"Division Name set to '{new_row['Division Name']}' for DivisionNo {division_no}, Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 44 (AR): Lookup Payment Days
                 state_division: str = new_row['State-Division Name']
@@ -418,12 +420,14 @@ class AgingReportService:
                 state_days_entry: Optional[Dict[str, Any]] = next((item for item in division_state_days 
                                         if f"{item.get('State')}-{item.get('Division Name')}" == state_division), None)
                 new_row['Payment Days'] = state_days_entry.get("Days", "") if state_days_entry else ""
+                logger.debug(f"Payment Days set to '{new_row['Payment Days']}' for State-Division '{state_division}', Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 45 (AS): Add Sale_Date and Payment Days
                 sale_date: Optional[datetime] = row_dict.get('Sale_Date')
                 payment_days: Union[int, str, None] = new_row['Payment Days']
                 if isinstance(sale_date, datetime) and isinstance(payment_days, int):
                     new_row['Due Date'] = sale_date + timedelta(days=payment_days)
+                    logger.debug(f"Due Date calculated as {new_row['Due Date']} for Sale_Date {sale_date} with Payment Days {payment_days}, Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 else:
                     new_row['Due Date'] = ""
                     if not isinstance(payment_days, int):
@@ -435,6 +439,7 @@ class AgingReportService:
                 subdivision_entry: Optional[Dict[str, str]] = next((item for item in division_to_subdivision 
                                          if item.get("Division") == division), None)
                 new_row['Sub Division Name'] = subdivision_entry.get("Sub Division", "") if subdivision_entry else ""
+                logger.debug(f"Sub Division Name set to '{new_row['Sub Division Name']}' for Division '{division}', Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 48 (AV): Compute Gross Amount
                 delot_ind: bool = str(row_dict.get('Delot_Ind', "")).upper() == "TRUE"
@@ -443,8 +448,10 @@ class AgingReportService:
                 current_gross_amount_num: float = 0.0
                 if delot_ind and isinstance(gross_tot, (int, float)) and isinstance(sale_no, (int, float)):
                     current_gross_amount_num = float(gross_tot - sale_no)
+                    logger.debug(f"Gross Amount calculated as {current_gross_amount_num} (Delot_Ind TRUE) for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 elif isinstance(gross_tot, (int, float)):
                     current_gross_amount_num = float(gross_tot)
+                    logger.debug(f"Gross Amount set to {current_gross_amount_num} for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 new_row['Gross Amount'] = current_gross_amount_num
 
                 # Column 50 (AX): Get Day value for today - this becomes 'To be Collected'
@@ -455,6 +462,7 @@ class AgingReportService:
                 if isinstance(source_tbc_val, (int, float)):
                     numeric_to_be_collected = float(source_tbc_val)
                 new_row['To be Collected'] = numeric_to_be_collected
+                logger.debug(f"To be Collected set to {numeric_to_be_collected} from {day_key} for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 49 (AW): Calculate 'Collected' = Gross Amount - To be Collected
                 # This definition is based on the desired output reconciliation.
@@ -462,6 +470,7 @@ class AgingReportService:
                 if isinstance(current_gross_amount_num, (int, float)) and isinstance(numeric_to_be_collected, (int, float)):
                     collected_calc = current_gross_amount_num - numeric_to_be_collected
                 new_row['Collected'] = collected_calc
+                logger.debug(f"Collected calculated as {collected_calc} for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 
                 # Column 51 (AY): Compute Payable to Vendor
                 payable_to_vendor_val_num: float = 0.0 
@@ -470,30 +479,39 @@ class AgingReportService:
                     if numeric_to_be_collected == 0.0: 
                         payable_to_vendor_val_num = current_gross_amount_num
                 new_row['Payable to Vendor'] = payable_to_vendor_val_num
+                logger.debug(f"Payable to Vendor set to {payable_to_vendor_val_num} for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 
                 # Column 52 (AZ): Format Sale_Date as MMM-YY
                 if row_dict.get('Description'):
                     if isinstance(sale_date, datetime):
                         new_row['Month'] = sale_date.strftime("%b-%y")
+                        logger.debug(f"Month set to {new_row['Month']} for Sale_Date {sale_date}, Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                     else:
                         new_row['Month'] = ""
+                        logger.debug(f"Month set to empty as Sale_Date is not datetime for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 else:
                     new_row['Month'] = ""
+                    logger.debug(f"Month set to empty as Description is empty for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 53 (BA): Extract year from Sale_Date
                 if row_dict.get('Description'):
                     if isinstance(sale_date, datetime):
                         new_row['Year'] = sale_date.year
+                        logger.debug(f"Year set to {new_row['Year']} for Sale_Date {sale_date}, Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                     else:
                         new_row['Year'] = ""
+                        logger.debug(f"Year set to empty as Sale_Date is not datetime for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 else:
                     new_row['Year'] = ""
+                    logger.debug(f"Year set to empty as Description is empty for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 54 (BB): Check To be Collected (Interpreted as Cheque Date Y/N based on output)
                 if row_dict.get('Cheque_Date'): # If Cheque_Date has any value
                     new_row['Cheque Date Y/N'] = "YES"
+                    logger.debug(f"Cheque Date Y/N set to YES for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 else:
                     new_row['Cheque Date Y/N'] = "NO"
+                    logger.debug(f"Cheque Date Y/N set to NO for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 # Column 55 (BC): Compute days late
                 try:
@@ -502,26 +520,33 @@ class AgingReportService:
                         if isinstance(cheque_date_val, datetime):
                             days_diff: int = (today.date() - cheque_date_val.date()).days
                             new_row['Days Late for Vendors Pmt'] = days_diff if days_diff > 0 else ''
+                            logger.debug(f"Days Late for Vendors Pmt set to {new_row['Days Late for Vendors Pmt']} for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                         else:
                             new_row['Days Late for Vendors Pmt'] = ''
+                            logger.debug(f"Days Late for Vendors Pmt set to empty as Cheque_Date is not datetime for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                     else:
                         new_row['Days Late for Vendors Pmt'] = ''
+                        logger.debug(f"Days Late for Vendors Pmt set to empty as Payable to Vendor does not match Gross_Tot for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 except:
                     new_row['Days Late for Vendors Pmt'] = ''
+                    logger.debug(f"Exception occurred while calculating Days Late for Vendors Pmt, set to empty for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
                 new_rows.append(new_row)
 
             # Add processed rows to the combined result
             all_processed_data.extend(new_rows)
+            logger.info(f"Processed {len(new_rows)} rows for aging report.")
 
             # Create the output workbook here (end of method)
             template_wb = openpyxl.Workbook()
             template_sheet = template_wb.active
             if template_sheet:
                 template_sheet.title = '---DATA---'
+            logger.debug("Created output workbook with sheet '---DATA---'.")
 
             # Create a Tables sheet
             tables_sheet = template_wb.create_sheet(title='Tables')
+            logger.debug("Added 'Tables' sheet to output workbook.")
 
             # Populate the Tables sheet with original mapping data
             # Convert mapping file back to rows for the Tables sheet
@@ -534,11 +559,13 @@ class AgingReportService:
             for row_idx, row in enumerate(tables_data_rows, 1):
                 for col_idx, value in enumerate(row, 1):
                     tables_sheet.cell(row=row_idx, column=col_idx).value = value
+            logger.debug("Finished copying data to Tables sheet.")
 
             # Add headers to template sheet
             if template_sheet:
                 for i, header in enumerate(headers, 1):
                     template_sheet.cell(row=1, column=i).value = header
+            logger.debug(f"Added {len(headers)} headers to '---DATA---' sheet.")
 
             # Define column indices for formatting (1-based)
             # Ensure these header names exactly match those in your `headers` list
@@ -550,6 +577,7 @@ class AgingReportService:
             
             custom_number_format: str = "_(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)"
             date_format_dd_mmm_yy: str = "DD-MMM-YY"
+            logger.debug("Defined column indices and formats for output workbook.")
 
             # Append all processed rows to template
             current_row_excel: int = 2 # Start from row 2 for data
@@ -577,17 +605,21 @@ class AgingReportService:
                         template_sheet.cell(row=current_row_excel, column=col_due_date_idx).number_format = date_format_dd_mmm_yy
                     
                     current_row_excel += 1
+            logger.info(f"Appended {len(all_processed_data)} rows to '---DATA---' sheet with formatting applied.")
 
             # Save the workbook to bytes
             output: io.BytesIO = io.BytesIO()
             template_wb.save(output)
             output.seek(0)
+            logger.debug("Saved output workbook to bytes.")
 
             # Create a descriptive file name
             file_name: str = f"Sales_Aged_Balance_Report_{date_str}_pygrays_api.xlsx"
+            logger.debug(f"Set output file name to '{file_name}'.")
 
             # Set the data in the response object
             response.data = FileModel(name=file_name, content=output.getvalue())
+            logger.info(f"Completed processing aging report, returning file '{file_name}'.")
             return response
 
         except Exception as e:
