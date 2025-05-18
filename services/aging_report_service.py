@@ -256,6 +256,7 @@ class AgingReportService:
 
         errors = []
         response = ResponseBase(is_success=True)
+        all_files_filtered_data = []
 
         try:
             today = datetime.today()
@@ -474,6 +475,7 @@ class AgingReportService:
 
                 logger.info(f"Filtering complete. Kept {len(filtered_daily_data)} rows, excluded {len(daily_data) - len(filtered_daily_data)} rows")
                 logger.info(f"Exclusion breakdown: {excluded_count}")
+                all_files_filtered_data.extend(filtered_daily_data) # MODIFICATION: Accumulate current file's filtered data
 
             # Load mapping file (tables sheet) using csv.reader to access by column indices
             mapping_data = self._load_and_process_mapping_file(mapping_file, errors)
@@ -486,7 +488,7 @@ class AgingReportService:
 
             # Process each row and compute new columns
             new_rows = []
-            for row_dict in filtered_daily_data:
+            for row_dict in all_files_filtered_data:
                 new_row = row_dict.copy()
                 if not row_dict.get('Classification'):
                     new_rows.append(new_row)
