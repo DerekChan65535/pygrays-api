@@ -25,8 +25,6 @@ from models.file_model import FileModel
 from services.aging_report_service import AgingReportService
 from services.multi_logging import LoggingService
 
-# Initialize router
-router = APIRouter(prefix="/aging-report", tags=["Aging Report"])
 
 # Initialize logger
 logger = LoggingService().get_logger(__name__)
@@ -40,7 +38,7 @@ def get_aging_report_service():
     return aging_report_service
 
 
-@router.post("/process")
+@aging_reports_router.post("/process")
 async def process_aging_report(
     mapping_file: UploadFile = File(...),
     data_files: List[UploadFile] = File(...),
