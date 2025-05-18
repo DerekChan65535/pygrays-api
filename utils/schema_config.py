@@ -110,10 +110,15 @@ class ExportSchema(BaseSchema):
                         except (decimal.InvalidOperation, TypeError):
                             value = ''
                     row_values.append(value)
-                    # Apply number format if specified in the schema
+                
+                # First add the row values directly to cells
+                for col_idx, value in enumerate(row_values, start=1):
+                    sheet.cell(row=row_idx, column=col_idx).value = value
+                    
+                # Then apply number formats if specified
+                for col_idx, col in enumerate(headers, start=1):
                     if col in self.schema and self.schema[col].number_format:
                         sheet.cell(row=row_idx, column=col_idx).number_format = self.schema[col].number_format
-                sheet.append(row_values)
 
             logger.info(f'Exported {len(data)} rows to {sheet_name} sheet')
             return True

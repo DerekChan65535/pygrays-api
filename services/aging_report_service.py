@@ -542,10 +542,7 @@ class AgingReportService:
 
             # Create the output workbook here (end of method)
             template_wb = openpyxl.Workbook()
-            template_sheet = template_wb.active
-            if template_sheet:
-                template_sheet.title = '---DATA---'
-            logger.debug("Created output workbook with sheet '---DATA---'.")
+            template_wb.remove(template_wb.active)
 
             # Create a Tables sheet
             tables_sheet = template_wb.create_sheet(title='Tables')
@@ -603,8 +600,7 @@ class AgingReportService:
 
                     # Create a new workbook for this report type
                     report_wb = openpyxl.Workbook()
-                    if 'Sheet' in report_wb.sheetnames:
-                        del report_wb['Sheet']  # Remove default sheet
+                    report_wb.remove(report_wb.active)
 
                     # Create FULLY PAID sheet - rows where 'To be Collected' is 0.0
                     fully_paid_data = [row for row in filtered_data if row.get('To be Collected') == 0.0]
