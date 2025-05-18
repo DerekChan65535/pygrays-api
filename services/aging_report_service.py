@@ -125,6 +125,112 @@ class AgingReportService:
         logger.debug("No errors to handle in response")
         return False
 
+    def _load_and_process_mapping_file(
+        self, mapping_file: FileModel, errors: List[str]
+    ) -> Optional[Tuple[List[dict], List[dict], List[dict]]]:
+        """
+        Loads and processes the mapping file to create lookup dictionaries.
+        Returns a tuple of dictionaries or None if a critical error occurs.
+        """
+        logger.info(f"Processing mapping file: {mapping_file.name}")
+
+        try:
+            # Decode using UTF-8-SIG encoding to remove BOM if present
+            tables_data_str = mapping_file.content.decode('utf-8-sig')
+            logger.debug(f"Successfully decoded mapping file content ({len(tables_data_str)} characters)")
+            tables_data_reader = csv.reader(io.StringIO(tables_data_str))
+            logger.debug("Created CSV reader for mapping file to access columns by index")
+        except Exception as decode_error:
+            error_msg = f"Error decoding mapping file {mapping_file.name}: {str(decode_error)}"
+            logger.error(error_msg, exc_info=True)
+            errors.append(error_msg)
+            return None
+
+        division_to_subdivision: List[dict] = []
+        divisionno_to_division: List[dict] = []
+        division_state_days: List[dict] = []
+        
+        mapping_errors_count = 0  # For potential future use to count row-specific parsing errors
+
+        logger.info("Building lookup dictionaries from mapping file using column indices")
+        tables_data = list(tables_data_reader)
+
+        if not tables_data:
+            error_msg = f"Mapping file {mapping_file.name} is empty or contains no header row."
+            logger.error(error_msg)
+            errors.append(error_msg)
+            return None
+            
+        mapping_file_headers = tables_data[0]
+        data_rows = tables_data[1:] # Skip header row for data processing
+
+        # The col 0 and 1 of the mapping file is for Division and Sub Division
+        try:
+            div_subdiv_header_indices = (0, 1)
+            division_subdivision_headers = [mapping_file_headers[i] for i in div_subdiv_header_indices]
+            division_to_subdivision_raw = [[row[i] for i in div_subdiv_header_indices if i < len(row)] for row in data_rows]
+            division_to_subdivision = [
+                dict(zip(division_subdivision_headers, row_values))
+                for row_values in division_to_subdivision_raw
+                if len(row_values) == len(division_subdivision_headers) and all(row_values)
+            ]
+        except IndexError:
+            errors.append(f"Mapping file {mapping_file.name} has insufficient columns for Division/Sub Division mapping.")
+            logger.warning(f"Skipping Division/Sub Division mapping due to insufficient columns in {mapping_file.name}.")
+
+
+        # The col 3 and 4 of the mapping file is for DivisionNo and Division
+        try:
+            divno_div_header_indices = (3, 4)
+            divisionno_division_headers = [mapping_file_headers[i] for i in divno_div_header_indices]
+            divisionno_to_division_raw = [[row[i] for i in divno_div_header_indices if i < len(row)] for row in data_rows]
+            divisionno_to_division = [
+                dict(zip(divisionno_division_headers, row_values))
+                for row_values in divisionno_to_division_raw
+                if len(row_values) == len(divisionno_division_headers) and all(row_values)
+            ]
+        except IndexError:
+            errors.append(f"Mapping file {mapping_file.name} has insufficient columns for DivisionNo/Division mapping.")
+            logger.warning(f"Skipping DivisionNo/Division mapping due to insufficient columns in {mapping_file.name}.")
+
+        # The col 6, 7, 9 of the mapping file is for Division Name, State, Days
+        try:
+            div_state_days_indices = (6, 7, 9)
+            division_state_days_headers = [mapping_file_headers[i] for i in div_state_days_indices]
+            
+            for row in data_rows:
+                if all(i < len(row) for i in div_state_days_indices): # Ensure all indices are within row bounds
+                    raw_row_list = [row[div_state_days_indices[0]], row[div_state_days_indices[1]], row[div_state_days_indices[2]]]
+                    entry = dict(zip(division_state_days_headers, raw_row_list))
+                    try:
+                        days_value_str = str(entry.get("Days", "")).strip()
+                        if days_value_str:  # Ensure not empty string
+                            entry["Days"] = int(float(days_value_str))  # Convert to float first for robustness, then int
+                        else:
+                            entry["Days"] = None 
+                    except ValueError:
+                        logger.warning(f"Could not convert 'Days' value '{entry.get('Days')}' to int for entry: {entry} in {mapping_file.name}")
+                        entry["Days"] = None 
+                    
+                    if entry.get(mapping_file_headers[div_state_days_indices[1]]) and entry.get(mapping_file_headers[div_state_days_indices[0]]): # Check using actual header names for State and Division Name
+                         division_state_days.append(entry)
+                else:
+                    logger.warning(f"Skipping mapping row in {mapping_file.name} due to insufficient columns for Division/State/Days: {row}")
+        except IndexError:
+            errors.append(f"Mapping file {mapping_file.name} has insufficient columns for Division/State/Days mapping.")
+            logger.warning(f"Skipping Division/State/Days mapping due to insufficient columns in {mapping_file.name}.")
+
+
+        logger.info(f"Completed processing {len(tables_data)} rows from mapping file: {mapping_file.name}")
+        logger.info(f"Created lookup dictionaries: division_to_subdivision ({len(division_to_subdivision)} entries), "
+                   f"divisionno_to_division ({len(divisionno_to_division)} entries), "
+                   f"division_state_days ({len(division_state_days)} entries)")
+
+        if mapping_errors_count > 0: # This count is not currently incremented but is here for structure
+            logger.warning(f"Encountered {mapping_errors_count} issues while processing mapping file rows from {mapping_file.name}.")
+
+        return division_to_subdivision, divisionno_to_division, division_state_days
+
     async def process_uploaded_file(self, mapping_file: 'FileModel',
                                     data_files: List['FileModel']) -> 'ResponseBase':
 
@@ -370,77 +476,13 @@ class AgingReportService:
                 logger.info(f"Exclusion breakdown: {excluded_count}")
 
             # Load mapping file (tables sheet) using csv.reader to access by column indices
-            logger.info(f"Processing mapping file: {mapping_file.name}")
-
-            try:
-                tables_data_str = mapping_file.content.decode('utf-8-sig')  # Decode using UTF-8-SIG encoding to remove BOM if present
-                logger.debug(f"Successfully decoded mapping file content ({len(tables_data_str)} characters)")
-                tables_data_reader = csv.reader(io.StringIO(tables_data_str))
-                logger.debug(f"Created CSV reader for mapping file to access columns by index")
-            except Exception as decode_error:
-                error_msg = f"Error decoding mapping file {mapping_file.name}: {str(decode_error)}"
-                logger.error(error_msg, exc_info=True)
-                errors.append(error_msg)
+            mapping_data = self._load_and_process_mapping_file(mapping_file, errors)
+            if mapping_data is None:
+                # Errors list has been updated by _load_and_process_mapping_file
                 self._handle_errors(errors, response)
                 return response
-
-            # Create lookup dictionaries from Tables
-            division_to_subdivision = []
-            divisionno_to_division = []
-            division_state_days = []
             
-            mapping_errors = 0
-            
-            logger.info("Building lookup dictionaries from mapping file using column indices")
-            tables_data = list(tables_data_reader)
-            
-            # Extract headers from the first row
-            mapping_file_headers = tables_data[0] if tables_data else []
-            
-            # The col 0 and 1 of the mapping file is for Division and Sub Division
-            division_subdivision_headers = mapping_file_headers[:2] if len(mapping_file_headers) >= 2 else ["Division", "Sub Division"]
-            division_to_subdivision_raw = [row[:2] for row in tables_data[1:]]  # Skip header row
-            division_to_subdivision = [dict(zip(division_subdivision_headers, row)) for row in division_to_subdivision_raw if all(row)]
-            
-            # The col 3 and 4 of the mapping file is for DivisionNo and Division
-            divisionno_division_headers = mapping_file_headers[3:5] if len(mapping_file_headers) >= 5 else ["DivisionNo", "Division"]
-            divisionno_to_division_raw = [row[3:5] for row in tables_data[1:]]  # Skip header row
-            divisionno_to_division = [dict(zip(divisionno_division_headers, row)) for row in divisionno_to_division_raw if all(row)]
-            
-            # The col 6, 7, 9 of the mapping file is for Division Name, State, Days
-            division_state_days_headers = [mapping_file_headers[6], mapping_file_headers[7], mapping_file_headers[9]] if len(mapping_file_headers) >= 10 else ["Division Name", "State", "Days"]
-            division_state_days_raw = [[row[6], row[7], row[9]] for row in tables_data[1:]]  # Skip header row
-            # division_state_days = [dict(zip(division_state_days_headers, row)) for row in division_state_days_raw if all(row)]
-
-            division_state_days = []
-            for raw_row_list in division_state_days_raw:
-                # Ensure the list has enough elements for the headers
-                if len(raw_row_list) == len(division_state_days_headers):
-                    entry = dict(zip(division_state_days_headers, raw_row_list))
-                    try:
-                        days_value_str = str(entry.get("Days", "")).strip()
-                        if days_value_str: # Ensure not empty string
-                            entry["Days"] = int(float(days_value_str)) # Convert to float first for robustness, then int
-                        else:
-                            entry["Days"] = None # Or 0, depending on desired default
-                    except ValueError:
-                        logger.warning(f"Could not convert 'Days' value '{entry.get('Days')}' to int for entry: {entry}")
-                        entry["Days"] = None # Or 0, depending on desired default
-                    
-                    # Only add if essential parts of the entry are valid (e.g., State and Division Name are present)
-                    if entry.get("State") and entry.get("Division Name"):
-                         division_state_days.append(entry)
-                else:
-                    logger.warning(f"Skipping mapping row due to mismatched length: {raw_row_list}")
-
-
-            logger.info(f"Completed processing {len(tables_data)} rows from mapping file")
-            logger.info(f"Created lookup dictionaries: division_to_subdivision ({len(division_to_subdivision)} entries), "
-                       f"divisionno_to_division ({len(divisionno_to_division)} entries), "
-                       f"state_division_to_days ({len(division_state_days)} entries)")
-
-            if mapping_errors > 0:
-                logger.warning(f"Encountered {mapping_errors} errors while processing mapping file")
+            division_to_subdivision, divisionno_to_division, division_state_days = mapping_data
 
             # Process each row and compute new columns
             new_rows = []
