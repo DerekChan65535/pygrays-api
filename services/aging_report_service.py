@@ -634,7 +634,7 @@ class AgingReportService:
             output.seek(0)
 
             # Create a descriptive file name
-            file_name = f"Sales_Aged_Balance_Report_{date_str}.xlsx"
+            file_name = f"Sales_Aged_Balance_Report_{date_str}_pygrays_api.xlsx"
 
             # Set the data in the response object
             response.data = FileModel(name=file_name, content=output.getvalue())
