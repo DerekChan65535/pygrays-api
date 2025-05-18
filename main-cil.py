@@ -14,10 +14,20 @@ async def main():
     with open(r"Z:\Ariel\ageing\mapping.csv", "rb") as f:
         mapping_file = FileModel("mapping.csv", f.read())
 
-    with open(r"Z:\Ariel\ageing\nre raw data Sales Aged Balance - 20250416.csv", "rb") as f:
-        raw_sales_data = FileModel("Sales Aged Balance NSW.csv", f.read())
+    sales_data_files_info = [
+        {"name": "Sales Aged Balance NSW.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance NSW.csv"},
+        {"name": "Sales Aged Balance QLD.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance QLD.csv"},
+        {"name": "Sales Aged Balance SA.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance SA.csv"},
+        {"name": "Sales Aged Balance VIC.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance VIC.csv"},
+        {"name": "Sales Aged Balance WA.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance WA.csv"},
+    ]
 
-    response = await aging_service.process_uploaded_file(mapping_file, [raw_sales_data])
+    raw_sales_data_list = []
+    for file_info in sales_data_files_info:
+        with open(file_info["path"], "rb") as f:
+            raw_sales_data_list.append(FileModel(file_info["name"], f.read()))
+
+    response = await aging_service.process_uploaded_file(mapping_file, raw_sales_data_list)
 
     # You can do something with the response here, e.g., print(response)
     if response.is_success and response.data:
