@@ -9,7 +9,7 @@ import openpyxl
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
-from utils.schema_config import aging_report_daily_data_import_schema, BaseSchema, ExportSchema, SchemaField, ImportSchema, aging_report_export_schema
+from utils.schema_config import aging_report_daily_data_import_schema, BaseSchema, ExportSchema, ImportSchema, aging_report_export_schema, ImportField, ExportField
 
 # Initialize logger with detailed configuration
 logging.basicConfig(level=logging.INFO)
@@ -19,66 +19,7 @@ logger = logging.getLogger(__name__)
 class AgingReportService:
     # Use the schema from configuration
     daily_data_import_schema: ImportSchema = aging_report_daily_data_import_schema
-    
-    # Define export schema for aging report with number formats
-    aging_report_export_schema = ExportSchema({
-        'Classification': SchemaField('string'),
-        'Sale_No': SchemaField('string'),
-        'Description': SchemaField('string'),
-        'Division': SchemaField('string'),
-        'BDM': SchemaField('string'),
-        'Sale_Date': SchemaField('datetime'),
-        'Gross_Tot': SchemaField('float'),
-        'Delot_Ind': SchemaField('boolean'),
-        'Cheque_Date': SchemaField('datetime'),
-        'Day0': SchemaField('float'),
-        'Day1': SchemaField('float'),
-        'Day2': SchemaField('float'),
-        'Day3': SchemaField('float'),
-        'Day4': SchemaField('float'),
-        'Day5': SchemaField('float'),
-        'Day6': SchemaField('float'),
-        'Day7': SchemaField('float'),
-        'Day8': SchemaField('float'),
-        'Day9': SchemaField('float'),
-        'Day10': SchemaField('float'),
-        'Day11': SchemaField('float'),
-        'Day12': SchemaField('float'),
-        'Day13': SchemaField('float'),
-        'Day14': SchemaField('float'),
-        'Day15': SchemaField('float'),
-        'Day16': SchemaField('float'),
-        'Day17': SchemaField('float'),
-        'Day18': SchemaField('float'),
-        'Day19': SchemaField('float'),
-        'Day20': SchemaField('float'),
-        'Day21': SchemaField('float'),
-        'Day22': SchemaField('float'),
-        'Day23': SchemaField('float'),
-        'Day24': SchemaField('float'),
-        'Day25': SchemaField('float'),
-        'Day26': SchemaField('float'),
-        'Day27': SchemaField('float'),
-        'Day28': SchemaField('float'),
-        'Day29': SchemaField('float'),
-        'Day30': SchemaField('float'),
-        'Day31': SchemaField('float'),
-        'State': SchemaField('string'),
-        'State-Division Name': SchemaField('string'),
-        'Payment Days': SchemaField('integer'),
-        'Due Date': SchemaField('datetime', number_format='DD-MMM-YY'),
-        'Division Name': SchemaField('string'),
-        'Sub Division Name': SchemaField('string'),
-        'Gross Amount': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
-        'Collected': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
-        'To be Collected': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
-        'Payable to Vendor': SchemaField('float', number_format='_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_'),
-        'Month': SchemaField('string'),
-        'Year': SchemaField('integer'),
-        'Cheque Date Y/N': SchemaField('string'),
-        'Days Late for Vendors Pmt': SchemaField('integer'),
-        'Comments': SchemaField('string')
-    })
+
 
     @staticmethod
     def parse_date_with_formats(date_string: str, formats: List[str]) -> Optional[datetime]:
