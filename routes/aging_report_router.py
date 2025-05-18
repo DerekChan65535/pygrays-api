@@ -102,7 +102,7 @@ async def process_aging_report(
         
         return StreamingResponse(
             io.BytesIO(result_file.content),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            media_type="application/zip",
             headers={
                 "Content-Disposition": f"attachment; filename={result_file.name}"
             }

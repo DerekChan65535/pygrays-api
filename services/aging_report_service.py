@@ -4,6 +4,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Dict, Any, Union
+import zipfile
 
 import openpyxl
 
@@ -578,13 +579,20 @@ class AgingReportService:
             output.seek(0)
             logger.debug("Saved output workbook to bytes.")
 
-            # Create a descriptive file name
-            file_name: str = f"Sales_Aged_Balance_Report_{date_str}_pygrays_api.xlsx"
-            logger.debug(f"Set output file name to '{file_name}'.")
+            # Create a ZIP file containing the Excel file
+            zip_output = io.BytesIO()
+            with zipfile.ZipFile(zip_output, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.writestr(f"Sales_Aged_Balance_Report_{date_str}.xlsx", output.getvalue())
+            zip_output.seek(0)
+            logger.debug("Created ZIP file containing the Excel report.")
+
+            # Create a descriptive file name for the ZIP
+            zip_file_name: str = f"[pygrays]Sales_Aged_Balance_Report_{date_str}.zip"
+            logger.debug(f"Set output ZIP file name to '{zip_file_name}'.")
 
             # Set the data in the response object
-            response.data = FileModel(name=file_name, content=output.getvalue())
-            logger.info(f"Completed processing aging report, returning file '{file_name}'.")
+            response.data = FileModel(name=zip_file_name, content=zip_output.getvalue())
+            logger.info(f"Completed processing aging report, returning ZIP file '{zip_file_name}'.")
             return response
 
         except Exception as e:
