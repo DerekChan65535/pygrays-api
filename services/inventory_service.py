@@ -13,7 +13,7 @@ from utils.schema_config import (
     inventory_uom_mapping_schema as inventory_uom_mapping_import_schema,
     inventory_dropship_sales_schema as inventory_dropship_sales_export_schema,
     inventory_mixed_export_schema,
-    inventory_wine_export_schema
+    inventory_wine_export_schema, BaseSchema
 )
 
 import decimal
@@ -25,7 +25,7 @@ class InventoryService:
     # Use schemas from configuration
     dropship_sales_import_schema = inventory_dropship_sales_import_schema
     deals_import_schema = inventory_deals_import_schema
-    uom_mapping_import_schema = inventory_uom_mapping_import_schema
+    uom_mapping_import_schema:BaseSchema = inventory_uom_mapping_import_schema
     dropship_sales_export_schema = inventory_dropship_sales_export_schema
     mixed_export_schema = inventory_mixed_export_schema
     wine_export_schema = inventory_wine_export_schema
@@ -366,7 +366,7 @@ class InventoryService:
             logger.error('Error writing to Wine sheet', exc_info=True)
             return False
 
-    def _load_csv_data(self, file: FileModel, schema: object, errors: List[str]) -> List[Dict]:
+    def _load_csv_data(self, file: FileModel, schema :BaseSchema , errors: List[str]) -> List[Dict]:
         """
         Load and validate CSV data based on a given schema.
     
@@ -381,56 +381,57 @@ class InventoryService:
         try:
             rows = self._load_csv_from_bytes(file.content)
             if not rows:
-                errors.append(f"No data in file {file.name}")
+                errors.append(f'No data in file {file.name}')
                 return []
-    
+
             headers = rows[0]
-            missing_columns = [col for col in schema.keys() if col not in headers]
+            schema_dict = schema.schema if hasattr(schema, 'schema') else {}
+            missing_columns = [col for col in schema_dict.keys() if col not in headers]
             if missing_columns:
-                error_message = f"Missing required columns in {file.name}: {', '.join(missing_columns)}"
+                error_message = f'Missing required columns in {file.name}: {", ".join(missing_columns)}'
                 errors.append(error_message)
                 return []
-    
+
             validated_rows = []
-    
+
             for row_index, row in enumerate(rows[1:], start=2):  # Skip header
                 if len(row) != len(headers):
-                    errors.append(f"Row {row_index} in {file.name}: mismatched number of columns")
+                    errors.append(f'Row {row_index} in {file.name}: mismatched number of columns')
                     continue
-    
+
                 item = {}
                 row_invalid = False
                 for i, header_name in enumerate(headers):
-                    value = row[i] if i < len(row) else ""
-                    if header_name in schema:
-                        expected_type = schema[header_name]
-                        if value:
-                            if expected_type == decimal.Decimal:
+                    value = row[i] if i < len(row) else ''
+                    if header_name in schema_dict:
+                        expected_type = schema_dict[header_name].field_type if hasattr(schema_dict[header_name], 'field_type') else None
+                        if value and expected_type:
+                            if expected_type == 'decimal':
                                 try:
                                     # remove anything but digits and decimal point from the string
-                                    value = re.sub(r'[^.]', '', value)
+                                    value = re.sub(r'[^\d.]', '', value)
                                     value = decimal.Decimal(value)
                                 except decimal.InvalidOperation:
-                                    errors.append(f"Row {row_index}, column '{header_name}' in {file.name}: invalid decimal value '{value}'")
+                                    errors.append(f'Row {row_index}, column \'{header_name}\' in {file.name}: invalid decimal value \'{value}\'')
                                     row_invalid = True
                                     break  # Skip this row
-                            elif expected_type == int:
+                            elif expected_type == 'integer':
                                 try:
                                     # remove anything but digits from the string
                                     value = re.sub(r'\D', '', value)
                                     value = int(value) if value else 0
                                 except ValueError:
-                                    errors.append(f"Row {row_index}, column '{header_name}' in {file.name}: invalid integer value '{value}'")
+                                    errors.append(f'Row {row_index}, column \'{header_name}\' in {file.name}: invalid integer value \'{value}\'')
                                     row_invalid = True
                                     break  # Skip this row
                     item[header_name] = value
                 if not row_invalid:
                     validated_rows.append(item)
-    
+
             return validated_rows
         except Exception as e:
-            errors.append(f"Error processing file {file.name}: {str(e)}")
-            logger.error(f"Error processing file {file.name}", exc_info=True)
+            errors.append(f'Error processing file {file.name}: {str(e)}')
+            logger.error(f'Error processing file {file.name}', exc_info=True)
             return []
 
     def _load_uom_mapping_from_csv(self, csv_file: FileModel, errors: List[str]) -> Optional[Dict[str, str]]:

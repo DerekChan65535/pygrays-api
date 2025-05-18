@@ -9,7 +9,7 @@ import openpyxl
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
-from utils.schema_config import aging_report_daily_data_import_schema
+from utils.schema_config import aging_report_daily_data_import_schema, BaseSchema
 
 # Initialize logger with detailed configuration
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class AgingReportService:
     # Use the schema from configuration
-    daily_data_import_schema: Dict[str, Dict[str, Any]] = aging_report_daily_data_import_schema
+    daily_data_import_schema: BaseSchema = aging_report_daily_data_import_schema
 
     @staticmethod
     def parse_date_with_formats(date_string: str, formats: List[str]) -> Optional[datetime]:
@@ -289,75 +289,25 @@ class AgingReportService:
                 row_count: int = 0
                 conversion_errors: int = 0
 
-                logger.info(f"Beginning row processing for {data_file.name}")
+                logger.info(f'Beginning row processing for {data_file.name}')
                 for row_dict in daily_data:
                     row_count += 1
                     if row_count % 100 == 0:
-                        logger.debug(f"Processed {row_count} rows from {data_file.name}")
+                        logger.debug(f'Processed {row_count} rows from {data_file.name}')
 
-                    # Apply schema-based conversions
-                    converted_row: Dict[str, Any] = {}
+                    # Apply schema-based conversions (already done by import_data, but keeping for any additional processing if needed)
+                    converted_row: Dict[str, Any] = row_dict.copy()
                     row_errors: int = 0
 
-                    for field, value in row_dict.items():
-                        # Skip if field is not in schema
-                        if field not in self.daily_data_import_schema.keys():
-                            logger.debug(f"Field '{field}' not in schema, keeping original value: {value}")
-                            converted_row[field] = value
-                            continue
-
-                        field_schema = self.daily_data_import_schema[field]
-
-                        # Skip empty values unless required
-                        if not value and not field_schema.get("required", False):
-                            converted_row[field] = None
-                            continue
-                        elif not value and field_schema.get("required", False):
-                            logger.warning(f"Missing required field '{field}' in row {row_count}")
-                            row_errors += 1
-
-                        field_type: str = field_schema.get("type")
-                        try:
-                            # Convert based on field type
-                            if field_type == "datetime" and value:
-                                # Use the helper method for date parsing
-                                date_formats: List[str] = field_schema.get("formats", ["%Y-%m-%d"])
-                                parsed_date: Optional[datetime] = self.parse_date_with_formats(value, date_formats)
-                                converted_row[field] = parsed_date if parsed_date else value
-                                if parsed_date is None:
-                                    logger.warning(f"Could not parse date '{value}' for field '{field}' in row {row_count}")
-                                    row_errors += 1
-
-                            elif field_type == "float" and value:
-                                converted_row[field] = float(value)
-                                logger.debug(f"Converted '{field}' value '{value}' to float: {converted_row[field]}")
-                            elif field_type == "integer" and value:
-                                converted_row[field] = int(value)
-                                logger.debug(f"Converted '{field}' value '{value}' to integer: {converted_row[field]}")
-                            elif field_type == "boolean":
-                                # Handle various boolean string representations
-                                if isinstance(value, str):
-                                    converted_row[field] = value.upper() in ["TRUE", "YES", "Y", "1"]
-                                else:
-                                    converted_row[field] = bool(value)
-                                logger.debug(f"Converted '{field}' value '{value}' to boolean: {converted_row[field]}")
-                            else:
-                                # Default: keep as string or original value
-                                converted_row[field] = value
-                        except (ValueError, TypeError) as e:
-                            # If conversion fails, keep original value and continue
-                            logger.warning(f"Failed to convert field '{field}' with value '{value}' to {field_type}: {str(e)}")
-                            converted_row[field] = value
-                            row_errors += 1
-
+                    # No need for additional conversion since it's handled by BaseSchema.import_data
                     if row_errors > 0:
                         conversion_errors += 1
-                        logger.debug(f"Row {row_count} had {row_errors} conversion errors")
+                        logger.debug(f'Row {row_count} had {row_errors} conversion errors')
 
-                    daily_data.append(converted_row)
+                    daily_data[row_count - 1] = converted_row
 
-                logger.info(f"Completed processing {row_count} rows from {data_file.name}")
-                logger.info(f"Found {conversion_errors} rows with conversion errors")
+                logger.info(f'Completed processing {row_count} rows from {data_file.name}')
+                logger.info(f'Found {conversion_errors} rows with conversion errors')
 
                 # Clean data: Filter out rows based on conditions
                 logger.info(f"Filtering data for {data_file.name}, starting with {len(daily_data)} rows")
@@ -375,14 +325,14 @@ class AgingReportService:
                 # Rows are excluded if they:
                 #   1. Have a Cheque_Date (indicating already processed transactions)
                 #   2. Have zero Gross_Tot (indicating no financial value)
-                #   3. Contain "Buyer Cancellation Fees" in the description (special handling transactions)
+                #   3. Contain 'Buyer Cancellation Fees' in the description (special handling transactions)
                 #   4. Are summary/total rows with specific descriptions
                 # The exclusion count is tracked for reporting and audit purposes
                 # -------------------------------------------------------------------------
                 for row_idx, row_dict in enumerate(daily_data):
                     # Extract key fields needed for filtering decisions
                     cheque_date: Optional[datetime] = row_dict.get('Cheque_Date')
-                    gross_tot: Optional[float] = row_dict.get('Gross_Tot')
+                    gross_total: Optional[float] = row_dict.get('Gross_Tot')
                     description: Optional[str] = row_dict.get('Description')
                     classification: Optional[str] = row_dict.get('Classification')
                 
@@ -395,12 +345,12 @@ class AgingReportService:
                         logger.debug(f"Excluding row {row_idx}: Non-null Cheque_Date={cheque_date}")
                         continue
                         
-                    if gross_tot == 0:
+                    if gross_total == 0:
                         # Exclusion Rule 2: Skip rows with zero gross total
                         # Rationale: Zero-value transactions don't contribute financially
                         # to the aging report and are typically informational entries
-                        excluded_count["zero_gross"] += 1
-                        logger.debug(f"Excluding row {row_idx}: Zero Gross_Tot")
+                        excluded_count['zero_gross'] += 1
+                        logger.debug(f'Excluding row {row_idx}: Zero Gross_Tot')
                         continue
                         
                     if description and "Buyer Cancellation Fees" in str(description):
@@ -548,16 +498,16 @@ class AgingReportService:
                 # Column 55 (BC): Compute days late
                 try:
                     if new_row['Payable to Vendor'] == row_dict.get('Gross_Tot'):
-                        cheque_date = row_dict.get('Cheque_Date')
-                        if isinstance(cheque_date, datetime):
-                            days_diff: int = (today - cheque_date.date()).days
-                            new_row['Days Late for Vendors Pmt'] = days_diff if days_diff > 0 else ""
+                        cheque_date_val = row_dict.get('Cheque_Date')
+                        if isinstance(cheque_date_val, datetime):
+                            days_diff: int = (today.date() - cheque_date_val.date()).days
+                            new_row['Days Late for Vendors Pmt'] = days_diff if days_diff > 0 else ''
                         else:
-                            new_row['Days Late for Vendors Pmt'] = ""
+                            new_row['Days Late for Vendors Pmt'] = ''
                     else:
-                        new_row['Days Late for Vendors Pmt'] = ""
+                        new_row['Days Late for Vendors Pmt'] = ''
                 except:
-                    new_row['Days Late for Vendors Pmt'] = ""
+                    new_row['Days Late for Vendors Pmt'] = ''
 
                 new_rows.append(new_row)
 
@@ -567,10 +517,11 @@ class AgingReportService:
             # Create the output workbook here (end of method)
             template_wb = openpyxl.Workbook()
             template_sheet = template_wb.active
-            template_sheet.title = "---DATA---"
+            if template_sheet:
+                template_sheet.title = '---DATA---'
 
             # Create a Tables sheet
-            tables_sheet = template_wb.create_sheet(title="Tables")
+            tables_sheet = template_wb.create_sheet(title='Tables')
 
             # Populate the Tables sheet with original mapping data
             # Convert mapping file back to rows for the Tables sheet
@@ -585,8 +536,9 @@ class AgingReportService:
                     tables_sheet.cell(row=row_idx, column=col_idx).value = value
 
             # Add headers to template sheet
-            for i, header in enumerate(headers, 1):
-                template_sheet.cell(row=1, column=i).value = header
+            if template_sheet:
+                for i, header in enumerate(headers, 1):
+                    template_sheet.cell(row=1, column=i).value = header
 
             # Define column indices for formatting (1-based)
             # Ensure these header names exactly match those in your `headers` list
@@ -606,25 +558,25 @@ class AgingReportService:
                 for header_key in headers: 
                     val = row_dict.get(header_key, None)
                     # Ensure datetime objects are naive if they are timezone-aware, or handle as needed
-                    # openpyxl works best with naive datetime objects or timezone-aware ones if Excel is set up for it.
                     if isinstance(val, datetime) and val.tzinfo is not None:
                         val = val.replace(tzinfo=None) # Example: make naive
                     row_values.append(val)
-                template_sheet.append(row_values)
+                if template_sheet:
+                    template_sheet.append(row_values)
 
-                # Apply formatting for specific columns in the current row
-                template_sheet.cell(row=current_row_excel, column=col_gross_amount_idx).number_format = custom_number_format
-                template_sheet.cell(row=current_row_excel, column=col_collected_idx).number_format = custom_number_format
-                template_sheet.cell(row=current_row_excel, column=col_tbc_idx).number_format = custom_number_format
-                template_sheet.cell(row=current_row_excel, column=col_ptv_idx).number_format = custom_number_format
-                
-                # Apply date format for Due Date
-                # Check if the cell actually contains a date (it might be "" if Due Date couldn't be calculated)
-                due_date_val = template_sheet.cell(row=current_row_excel, column=col_due_date_idx).value
-                if isinstance(due_date_val, datetime):
-                    template_sheet.cell(row=current_row_excel, column=col_due_date_idx).number_format = date_format_dd_mmm_yy
-                
-                current_row_excel +=1
+                    # Apply formatting for specific columns in the current row
+                    template_sheet.cell(row=current_row_excel, column=col_gross_amount_idx).number_format = custom_number_format
+                    template_sheet.cell(row=current_row_excel, column=col_collected_idx).number_format = custom_number_format
+                    template_sheet.cell(row=current_row_excel, column=col_tbc_idx).number_format = custom_number_format
+                    template_sheet.cell(row=current_row_excel, column=col_ptv_idx).number_format = custom_number_format
+                    
+                    # Apply date format for Due Date
+                    # Check if the cell actually contains a date (it might be '' if Due Date couldn't be calculated)
+                    due_date_val = template_sheet.cell(row=current_row_excel, column=col_due_date_idx).value
+                    if isinstance(due_date_val, datetime):
+                        template_sheet.cell(row=current_row_excel, column=col_due_date_idx).number_format = date_format_dd_mmm_yy
+                    
+                    current_row_excel += 1
 
             # Save the workbook to bytes
             output: io.BytesIO = io.BytesIO()
