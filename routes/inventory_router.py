@@ -36,6 +36,17 @@ async def create_upload_files(
             content="No csv files uploaded"
         )
 
+    if any(not x.filename for x in txt_files):
+        return fastapi.responses.Response(
+            status_code=400,
+            content="One or more txt files have no filename"
+        )
+    if not csv_files[0].filename:
+        return fastapi.responses.Response(
+            status_code=400,
+            content="CSV file has no filename"
+        )
+
     txt_file_name_content = [FileModel(x.filename, await x.read()) for x in txt_files]
     csv_uom_file = FileModel(csv_files[0].filename, await csv_files[0].read())
 
