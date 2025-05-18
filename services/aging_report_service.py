@@ -650,9 +650,17 @@ class AgingReportService:
                     report_output.seek(0)
                     logger.debug(f"Saved {report_type} workbook to bytes")
 
+                    # Determine file name based on report type
+                    if report_type == 'DivAUTO':
+                        file_name = f"All Sales Aged Balance Report {date_str} - Auto.xlsx"
+                    elif report_type == 'DivINDUSTRIAL':
+                        file_name = f"All Sales Aged Balance Report {date_str} - Industrial.xlsx"
+                    elif report_type == 'DivCONSUMER':
+                        file_name = f"All Sales Aged Balance Report {date_str} 1156 - Consumer.xlsx"
+                    
                     # Add to ZIP file
-                    zipf.writestr(f"{report_type}_Report_{date_str}.xlsx", report_output.getvalue())
-                    logger.debug(f"Added {report_type} Excel file to ZIP")
+                    zipf.writestr(file_name, report_output.getvalue())
+                    logger.debug(f"Added {report_type} Excel file to ZIP as {file_name}")
 
             zip_output.seek(0) 
             logger.debug("Created ZIP file containing all Excel reports.")
