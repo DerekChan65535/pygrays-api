@@ -189,19 +189,20 @@ class AgingReportService:
         return division_to_subdivision, divisionno_to_division, division_state_days
 
     async def process_uploaded_file(self, mapping_file: 'FileModel',
-                                    data_files: List['FileModel']) -> 'ResponseBase':
-
+                                   data_files: List['FileModel'],
+                                   report_date: Optional[datetime] = None) -> 'ResponseBase':
         """
-                Processes multiple daily Sales Aged Balance reports, computes values for columns 43 to 55,
-                and returns a FileModel with the combined processed data.
-    
-                Args:
-                    mapping_file: CSV file containing mapping tables
-                    data_files: List of CSV files containing daily sales data with state info in filenames
+        Processes multiple daily Sales Aged Balance reports, computes values for columns 43 to 55,
+        and returns a FileModel with the combined processed data.
 
-                Returns:
-                    ResponseBase object with success status and FileModel data
-                """
+        Args:
+            mapping_file: CSV file containing mapping tables
+            data_files: List of CSV files containing daily sales data with state info in filenames
+            report_date: Specific date to use for report calculations (defaults to today if None)
+
+        Returns:
+            ResponseBase object with success status and FileModel data
+        """
         method_start_time: float = time.time()
         logger.info("=== Starting process_uploaded_file ===")
         logger.info(f"Received mapping file: {mapping_file.name} ({len(mapping_file.content)} bytes)")
@@ -216,7 +217,8 @@ class AgingReportService:
         all_files_filtered_data: List[Dict[str, Any]] = []
 
         try:
-            today: datetime = datetime.today()
+            # Use the provided report_date or default to today
+            today: datetime = report_date if report_date else datetime.today()
             date_str: str = today.strftime("%Y%m%d")
             logger.debug(f"Processing date: {today}, formatted as {date_str}")
 
@@ -457,7 +459,7 @@ class AgingReportService:
                     logger.debug(f"Gross Amount set to {current_gross_amount_num} for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                 new_row['Gross Amount'] = current_gross_amount_num
 
-                # Column 50 (AX): Get Day value for today - this becomes 'To be Collected'
+                # Column 50 (AX): Get Day value for report date - this becomes 'To be Collected'
                 day_num: int = today.day
                 day_key: str = f"Day{day_num}"
                 numeric_to_be_collected: float = 0.0
@@ -542,7 +544,8 @@ class AgingReportService:
 
             # Create the output workbook here (end of method)
             template_wb = openpyxl.Workbook()
-            template_wb.remove(template_wb.active)
+            if template_wb.active:
+                template_wb.remove(template_wb.active)
 
             # Create a Tables sheet
             tables_sheet = template_wb.create_sheet(title='Tables')
@@ -600,7 +603,8 @@ class AgingReportService:
 
                     # Create a new workbook for this report type
                     report_wb = openpyxl.Workbook()
-                    report_wb.remove(report_wb.active)
+                    if report_wb.active:
+                        report_wb.remove(report_wb.active)
 
                     # Create FULLY PAID sheet - rows where 'To be Collected' is 0.0
                     fully_paid_data = [row for row in filtered_data if row.get('To be Collected') == 0.0]
@@ -631,9 +635,8 @@ class AgingReportService:
                             fully_paid_sheet.cell(row=row_idx, column=col_idx+1).value = cell.value
                     logger.info(f"Sorted 'FULLY PAID' sheet by Due Date for {report_type}")
 
-                    # Highlight cells in FULLY PAID sheet where Due Date <= yesterday
-                    from datetime import date
-                    yesterday = date.today() - timedelta(days=1)
+                    # Highlight cells in FULLY PAID sheet where Due Date <= report_date - 1 day
+                    yesterday = today.date() - timedelta(days=1)
                     for row in fully_paid_sheet.iter_rows(min_row=2, min_col=45, max_col=45):
                         for cell in row:
                             if isinstance(cell.value, datetime) and cell.value.date() <= yesterday:
