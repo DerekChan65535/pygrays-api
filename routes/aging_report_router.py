@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from typing import List, Optional
-from fastapi import UploadFile, File, HTTPException, Depends
+from fastapi import UploadFile, File, HTTPException, Depends, Form
 from fastapi.responses import StreamingResponse
 import io
 from datetime import datetime
@@ -31,7 +31,7 @@ def get_aging_report_service():
 async def process_aging_report(
     mapping_file: UploadFile = File(...),
     data_files: List[UploadFile] = File(...),
-    report_date: Optional[str] = None,
+    report_date: Optional[str] = Form(None),
     service: AgingReportService = Depends(get_aging_report_service)
 ):
     """
@@ -48,6 +48,7 @@ async def process_aging_report(
     """
     try:
         logger.info(f"Processing aging report with {len(data_files)} data files")
+        logger.info(f"Report date received: {report_date}")
 
         if not mapping_file.filename or not data_files or len(data_files) == 0:
             raise HTTPException(status_code=400, detail="Mapping file and data files are required")
