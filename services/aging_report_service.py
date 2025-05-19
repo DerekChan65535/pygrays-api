@@ -1,6 +1,7 @@
 import csv
 import io
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Dict, Any, Union
@@ -222,21 +223,6 @@ class AgingReportService:
             date_str: str = today.strftime("%Y%m%d")
             logger.debug(f"Processing date: {today}, formatted as {date_str}")
 
-            import re
-            logger.debug("Imported re module for regex operations")
-
-            # Headers for template sheet
-            headers: List[str] = [
-                "Classification", "Sale_No", "Description", "Division", "BDM", "Sale_Date",
-                "Gross_Tot", "Delot_Ind", "Cheque_Date", "Day0", "Day1", "Day2", "Day3",
-                "Day4", "Day5", "Day6", "Day7", "Day8", "Day9", "Day10", "Day11",
-                "Day12", "Day13", "Day14", "Day15", "Day16", "Day17", "Day18", "Day19",
-                "Day20", "Day21", "Day22", "Day23", "Day24", "Day25", "Day26", "Day27",
-                "Day28", "Day29", "Day30", "Day31", "State", "State-Division Name",
-                "Payment Days", "Due Date", "Division Name", "Sub Division Name",
-                "Gross Amount", "Collected", "To be Collected", "Payable to Vendor",
-                "Month", "Year", "Cheque Date Y/N", "Days Late for Vendors Pmt", "Comments"
-            ]
 
             # Check if data files are provided
             if not data_files or len(data_files) == 0:
