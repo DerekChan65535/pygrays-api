@@ -1,22 +1,6 @@
-from typing import Annotated
-
-from dependency_injector.wiring import inject, Provide
-from fastapi import APIRouter, UploadFile, File
-from fastapi.params import Depends
-import fastapi.responses
-from starlette.responses import HTMLResponse, JSONResponse
-
-from containers import RootContainer
-from services.aging_report_service import AgingReportService
-
-aging_reports_router = APIRouter(
-    prefix="/aging-reports",
-    tags=["aging-reports"],
-)
-
-import logging
+from fastapi import APIRouter
 from typing import List
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 import io
 
@@ -25,6 +9,10 @@ from models.file_model import FileModel
 from services.aging_report_service import AgingReportService
 from services.multi_logging import LoggingService
 
+aging_reports_router = APIRouter(
+    prefix="/aging-reports",
+    tags=["aging-reports"],
+)
 
 # Initialize logger
 logger = LoggingService().get_logger(__name__)
