@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from typing import List, Optional
 from fastapi import UploadFile, File, HTTPException, Depends, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import io
 from datetime import datetime
 
@@ -90,11 +90,14 @@ async def process_aging_report(
         # If processing failed, return the error response
         if not response.is_success:
             logger.error(f"Failed to process aging report: {response.errors}")
-            return {
-                "is_success": False,
-                "errors": response.errors,
-                "data": None
-            }
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "is_success": False,
+                    "errors": response.errors,
+                    "data": None
+                }
+            )
         
         # If successful, return the file as a downloadable response
         result_file: FileModel = response.data

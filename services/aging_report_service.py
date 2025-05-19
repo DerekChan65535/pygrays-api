@@ -383,6 +383,8 @@ class AgingReportService:
 
             # Process each row and compute new columns
             new_rows: List[Dict[str, Any]] = []
+            mapping_errors: List[str] = []  # Track mapping errors
+            
             for row_dict in all_files_filtered_data:
                 new_row: Dict[str, Any] = row_dict.copy()
                 if not row_dict.get('Classification'):
@@ -400,6 +402,11 @@ class AgingReportService:
                 division_no: Union[str, int, None] = row_dict.get('Division')
                 # Find matching division entry
                 division_entry: Optional[Dict[str, str]] = next((item for item in divisionno_to_division if item.get("DivisionNo") == division_no), None)
+                if not division_entry:
+                    error_msg = f"Missing Division mapping for DivisionNo '{division_no}' in Sale_No {row_dict.get('Sale_No', 'Unknown')}"
+                    logger.error(error_msg)
+                    mapping_errors.append(error_msg)
+                
                 new_row['Division Name'] = division_entry.get("Division", "") if division_entry else ""
                 # Update AQ with Division Name
                 new_row['State-Division Name'] = f"{state_val}-{new_row['Division Name']}" if state_val and new_row['Division Name'] else ""
@@ -410,6 +417,11 @@ class AgingReportService:
                 # Find matching entry for state-division
                 state_days_entry: Optional[Dict[str, Any]] = next((item for item in division_state_days 
                                         if f"{item.get('State')}-{item.get('Division Name')}" == state_division), None)
+                if not state_days_entry and state_division:  # Only report error if state_division has value
+                    error_msg = f"Missing Payment Days mapping for State-Division '{state_division}' in Sale_No {row_dict.get('Sale_No', 'Unknown')}"
+                    logger.error(error_msg)
+                    mapping_errors.append(error_msg)
+                
                 new_row['Payment Days'] = state_days_entry.get("Days", "") if state_days_entry else ""
                 logger.debug(f"Payment Days set to '{new_row['Payment Days']}' for State-Division '{state_division}', Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
@@ -429,6 +441,11 @@ class AgingReportService:
                 # Find matching subdivision entry
                 subdivision_entry: Optional[Dict[str, str]] = next((item for item in division_to_subdivision 
                                          if item.get("Division") == division), None)
+                if not subdivision_entry and division:  # Only report error if division has value
+                    error_msg = f"Missing Sub Division mapping for Division '{division}' in Sale_No {row_dict.get('Sale_No', 'Unknown')}"
+                    logger.error(error_msg)
+                    mapping_errors.append(error_msg)
+                
                 new_row['Sub Division Name'] = subdivision_entry.get("Sub Division", "") if subdivision_entry else ""
                 logger.debug(f"Sub Division Name set to '{new_row['Sub Division Name']}' for Division '{division}', Sale_No {row_dict.get('Sale_No', 'Unknown')}")
 
@@ -524,6 +541,23 @@ class AgingReportService:
 
                 new_rows.append(new_row)
 
+            # Check for mapping errors before proceeding
+            if mapping_errors:
+                logger.error(f"Found {len(mapping_errors)} mapping errors during processing")
+                # Limit the number of errors to include in response to avoid overwhelming the user
+                max_errors_to_show = 10
+                if len(mapping_errors) > max_errors_to_show:
+                    truncated_msg = f"Found {len(mapping_errors)} missing mappings in the data. First {max_errors_to_show} errors are shown below:"
+                    errors.append(truncated_msg)
+                    errors.extend(mapping_errors[:max_errors_to_show])
+                    errors.append(f"...and {len(mapping_errors) - max_errors_to_show} more mapping errors. Please check the mapping file and ensure all required mappings are present.")
+                else:
+                    errors.append(f"Found {len(mapping_errors)} missing mappings in the data:")
+                    errors.extend(mapping_errors)
+                
+                self._handle_errors(errors, response)
+                return response
+            
             # Add processed rows to the combined result
             all_processed_data.extend(new_rows)
             logger.info(f"Processed {len(new_rows)} rows for aging report.")
