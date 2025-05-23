@@ -1,13 +1,14 @@
 # Schema Configurations for PyGrays API
 
-from typing import Dict, List, Any, Type, Optional, Union
+from typing import Dict, List, Any, Type, Optional, Union, Callable
 import csv
 import io
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import decimal
 from openpyxl import Workbook, worksheet
+from openpyxl.styles import PatternFill
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,32 @@ class ExportField:
         self.field_type = field_type
         self.number_format = number_format
 
+class ConditionalFormat:
+    def __init__(self, column: str, condition: str, reference_value: Any, format_config: Dict[str, Any]):
+        self.column = column
+        self.condition = condition
+        self.reference_value = reference_value
+        self.format_config = format_config
+
+    def should_apply(self, cell_value: Any, context: Dict[str, Any]) -> bool:
+        """Check if the conditional format should be applied to the cell value"""
+        if self.condition == 'date_before_or_equal':
+            if isinstance(cell_value, datetime):
+                reference_date = context.get(self.reference_value)
+                if reference_date:
+                    return cell_value.date() <= reference_date
+        return False
+
+    def apply_format(self, cell):
+        """Apply the formatting to the cell"""
+        if 'fill_color' in self.format_config:
+            fill_type = self.format_config.get('fill_type', 'solid')
+            cell.fill = PatternFill(
+                start_color=self.format_config['fill_color'],
+                end_color=self.format_config['fill_color'],
+                fill_type=fill_type
+            )
+
 class BaseSchema:
     def __init__(self, schema: Dict[str, Any]):
         self.schema = schema
@@ -94,13 +121,31 @@ class ImportSchema(BaseSchema):
             return []
 
 class ExportSchema(BaseSchema):
-    def export_data(self, data: List[Dict[str, Any]], workbook: Workbook, sheet_name: str, errors: List[str]) -> bool:
+    def __init__(self, schema: Dict[str, ExportField], sort_by: Optional[str] = None, 
+                 ascending: bool = True, conditional_formats: Optional[List[ConditionalFormat]] = None):
+        super().__init__(schema)
+        self.sort_by = sort_by
+        self.ascending = ascending
+        self.conditional_formats = conditional_formats or []
+
+    def export_data(self, data: List[Dict[str, Any]], workbook: Workbook, sheet_name: str, 
+                   errors: List[str], context: Optional[Dict[str, Any]] = None) -> bool:
         try:
             sheet = workbook.create_sheet(sheet_name)
             headers = list(self.schema.keys())
             sheet.append(headers)
 
-            for row_idx, item in enumerate(data, start=2):
+            # Sort data if sort_by is specified
+            sorted_data = data
+            if self.sort_by and self.sort_by in headers:
+                try:
+                    sorted_data = sorted(data, key=lambda row: row.get(self.sort_by, datetime.min) if self.sort_by else datetime.min, reverse=not self.ascending)
+                    logger.info(f"Sorted {len(sorted_data)} rows by '{self.sort_by}' ({'ascending' if self.ascending else 'descending'}) for sheet '{sheet_name}'")
+                except Exception as sort_error:
+                    logger.warning(f"Failed to sort data by '{self.sort_by}' for sheet '{sheet_name}': {str(sort_error)}")
+                    sorted_data = data
+
+            for row_idx, item in enumerate(sorted_data, start=2):
                 row_values = []
                 for col_idx, col in enumerate(headers, start=1):
                     value = item.get(col, '')
@@ -113,14 +158,25 @@ class ExportSchema(BaseSchema):
                 
                 # First add the row values directly to cells
                 for col_idx, value in enumerate(row_values, start=1):
-                    sheet.cell(row=row_idx, column=col_idx).value = value
+                    cell = sheet.cell(row=row_idx, column=col_idx)
+                    cell.value = value
+                    
+                    # Apply conditional formatting if specified
+                    if self.conditional_formats and context:
+                        column_name = headers[col_idx - 1]
+                        for conditional_format in self.conditional_formats:
+                            if conditional_format.column == column_name:
+                                if conditional_format.should_apply(value, context):
+                                    conditional_format.apply_format(cell)
                     
                 # Then apply number formats if specified
                 for col_idx, col in enumerate(headers, start=1):
                     if col in self.schema and self.schema[col].number_format:
                         sheet.cell(row=row_idx, column=col_idx).number_format = self.schema[col].number_format
 
-            logger.info(f'Exported {len(data)} rows to {sheet_name} sheet')
+            logger.info(f'Exported {len(sorted_data)} rows to {sheet_name} sheet')
+            if self.conditional_formats:
+                logger.info(f'Applied {len(self.conditional_formats)} conditional format(s) to {sheet_name} sheet')
             return True
         except Exception as e:
             errors.append(f'Error exporting data to {sheet_name}: {str(e)}')
@@ -172,7 +228,8 @@ aging_report_daily_data_import_schema = ImportSchema({
     'Day31': ImportField('float'),
 })
 
-aging_report_export_schema = ExportSchema({
+# Base field definitions for aging report exports
+aging_report_base_fields = {
     'Classification': ExportField('string'),
     'Sale_No': ExportField('string'),
     'Description': ExportField('string'),
@@ -229,7 +286,31 @@ aging_report_export_schema = ExportSchema({
     'Cheque Date Y/N': ExportField('string'),
     'Days Late for Vendors Pmt': ExportField('integer'),
     'Comments': ExportField('string')
-})
+}
+
+# Main data sheet schema (no special formatting)
+aging_report_data_schema = ExportSchema(aging_report_base_fields)
+
+# Fully paid sheet schema with sorting and conditional formatting
+aging_report_fully_paid_schema = ExportSchema(
+    aging_report_base_fields,
+    sort_by='Due Date',
+    ascending=True,
+    conditional_formats=[
+        ConditionalFormat(
+            column='Due Date',
+            condition='date_before_or_equal',
+            reference_value='yesterday',
+            format_config={'fill_color': '90EE90', 'fill_type': 'solid'}
+        )
+    ]
+)
+
+# Not fully paid sheet schema (no special formatting for now)
+aging_report_not_fully_paid_schema = ExportSchema(aging_report_base_fields)
+
+# Legacy schema for backward compatibility
+aging_report_export_schema = aging_report_data_schema
 
 # Inventory Service Schemas
 inventory_dropship_sales_schema = ImportSchema({

@@ -12,7 +12,17 @@ from openpyxl.styles import PatternFill
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
-from utils.schema_config import aging_report_daily_data_import_schema, BaseSchema, ExportSchema, ImportSchema, aging_report_export_schema, ImportField, ExportField
+from utils.schema_config import (
+    aging_report_daily_data_import_schema, 
+    BaseSchema, 
+    ExportSchema, 
+    ImportSchema, 
+    aging_report_data_schema,
+    aging_report_fully_paid_schema,
+    aging_report_not_fully_paid_schema,
+    ImportField, 
+    ExportField
+)
 
 # Initialize logger with detailed configuration
 logging.basicConfig(level=logging.INFO)
@@ -586,7 +596,7 @@ class AgingReportService:
 
             # Use the export schema to write data to the template sheet
             errors_export: List[str] = []
-            success = aging_report_export_schema.export_data(all_processed_data, template_wb, '---DATA---', errors_export)
+            success = aging_report_data_schema.export_data(all_processed_data, template_wb, '---DATA---', errors_export)
             if not success:
                 logger.error(f"Failed to export data to '---DATA---' sheet: {errors_export}")
                 errors.extend(errors_export)
@@ -626,9 +636,13 @@ class AgingReportService:
                     if report_wb.active:
                         report_wb.remove(report_wb.active)
 
+                    # Calculate yesterday for conditional formatting context
+                    yesterday = today.date() - timedelta(days=1)
+                    context = {'yesterday': yesterday}
+
                     # Create FULLY PAID sheet - rows where 'To be Collected' is 0.0
                     fully_paid_data = [row for row in filtered_data if row.get('To be Collected') == 0.0]
-                    success = aging_report_export_schema.export_data(fully_paid_data, report_wb, 'FULLY PAID', errors_export)
+                    success = aging_report_fully_paid_schema.export_data(fully_paid_data, report_wb, 'FULLY PAID', errors_export, context)
                     if not success:
                         logger.error(f"Failed to export FULLY PAID data for {report_type}: {errors_export}")
                         errors.extend(errors_export)
@@ -638,30 +652,13 @@ class AgingReportService:
 
                     # Create NOT FULLY PAID sheet - rows where 'To be Collected' is not 0.0
                     not_fully_paid_data = [row for row in filtered_data if row.get('To be Collected') != 0.0]
-                    success = aging_report_export_schema.export_data(not_fully_paid_data, report_wb, 'NOT FULLY PAID', errors_export)
+                    success = aging_report_not_fully_paid_schema.export_data(not_fully_paid_data, report_wb, 'NOT FULLY PAID', errors_export)
                     if not success:
                         logger.error(f"Failed to export NOT FULLY PAID data for {report_type}: {errors_export}")
                         errors.extend(errors_export)
                         self._handle_errors(errors, response)
                         return response
                     logger.info(f"Exported {len(not_fully_paid_data)} rows to 'NOT FULLY PAID' sheet for {report_type}")
-
-                    # Sort FULLY PAID sheet by Due Date (column AS/45) 
-                    fully_paid_sheet = report_wb['FULLY PAID']
-                    fully_paid_sheet_data = fully_paid_sheet[2:fully_paid_sheet.max_row]
-                    sorted_data = sorted(fully_paid_sheet_data, key=lambda row: row[44].value if row[44].value else datetime.min)
-                    for row_idx, row_data in enumerate(sorted_data, start=2):
-                        for col_idx, cell in enumerate(row_data):
-                            fully_paid_sheet.cell(row=row_idx, column=col_idx+1).value = cell.value
-                    logger.info(f"Sorted 'FULLY PAID' sheet by Due Date for {report_type}")
-
-                    # Highlight cells in FULLY PAID sheet where Due Date <= report_date - 1 day
-                    yesterday = today.date() - timedelta(days=1)
-                    for row in fully_paid_sheet.iter_rows(min_row=2, min_col=45, max_col=45):
-                        for cell in row:
-                            if isinstance(cell.value, datetime) and cell.value.date() <= yesterday:
-                                cell.fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
-                    logger.info(f"Highlighted past due dates in 'FULLY PAID' sheet for {report_type}")
 
                     # Save the workbook to bytes
                     report_output = io.BytesIO()
