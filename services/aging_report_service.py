@@ -260,10 +260,11 @@ class AgingReportService:
                 # 1. "Sales Aged Balance [state].csv" (space-separated)
                 # 2. "SalesAgedBalance[state].csv" (camel case)
                 # 3. "Sales_Aged_Balance_[state].csv" (underscore-separated)
-                state_match: Optional[re.Match] = re.search(r'(?:Sales[ _]?Aged[ _]?Balance[ _]?|SalesAgedBalance)(\w+)\.csv', data_file.name, re.IGNORECASE)
+                # 4. "Sales Aged Balance - [state].csv" (hyphen-separated)
+                state_match: Optional[re.Match] = re.search(r'(?:Sales[ _]?Aged[ _]?Balance[ _]?(?:\s*-\s*)?|SalesAgedBalance)(\w+)\.csv', data_file.name, re.IGNORECASE)
                 if not state_match:
                     error_msg: str = (f"Unable to extract state from filename: {data_file.name}. Expected formats: "
-                                f"'Sales Aged Balance [state].csv', 'SalesAgedBalance[state].csv', or 'Sales_Aged_Balance_[state].csv'")
+                                f"'Sales Aged Balance [state].csv', 'SalesAgedBalance[state].csv', 'Sales_Aged_Balance_[state].csv', or 'Sales Aged Balance - [state].csv'")
                     errors.append(error_msg)
                     logger.error(error_msg)
                     logger.warning(f"Skipping file {data_file.name} due to invalid filename format")
@@ -381,6 +382,14 @@ class AgingReportService:
                 logger.info(f"Filtering complete. Kept {len(filtered_daily_data)} rows, excluded {len(daily_data) - len(filtered_daily_data)} rows")
                 logger.info(f"Exclusion breakdown: {excluded_count}")
                 all_files_filtered_data.extend(filtered_daily_data) # MODIFICATION: Accumulate current file's filtered data
+
+            # Check if all data files were skipped (no data extracted)
+            if len(all_files_filtered_data) == 0:
+                error_msg = f"No data was extracted from any of the {len(data_files)} data files. This could be due to filename format issues or all rows being filtered out. Please check the filename formats and data content."
+                logger.error(error_msg)
+                errors.append(error_msg)
+                self._handle_errors(errors, response)
+                return response
 
             # Load mapping file (tables sheet) using csv.reader to access by column indices
             mapping_data = self._load_and_process_mapping_file(mapping_file, errors)
