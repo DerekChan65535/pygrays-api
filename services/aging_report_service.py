@@ -201,7 +201,7 @@ class AgingReportService:
 
     async def process_uploaded_file(self, mapping_file: 'FileModel',
                                    data_files: List['FileModel'],
-                                   report_date: Optional[datetime] = None) -> 'ResponseBase':
+                                   report_date: datetime) -> 'ResponseBase':
         """
         Processes multiple daily Sales Aged Balance reports, computes values for columns 43 to 55,
         and returns a FileModel with the combined processed data.
@@ -209,7 +209,7 @@ class AgingReportService:
         Args:
             mapping_file: CSV file containing mapping tables
             data_files: List of CSV files containing daily sales data with state info in filenames
-            report_date: Specific date to use for report calculations (defaults to today if None)
+            report_date: Specific date to use for report calculations
 
         Returns:
             ResponseBase object with success status and FileModel data
@@ -228,10 +228,10 @@ class AgingReportService:
         all_files_filtered_data: List[Dict[str, Any]] = []
 
         try:
-            # Use the provided report_date or default to today
-            today: datetime = report_date if report_date else datetime.today()
-            date_str: str = today.strftime("%Y%m%d")
-            logger.debug(f"Processing date: {today}, formatted as {date_str}")
+            # Use the provided report_date
+            reporting_date: datetime = report_date
+            date_str: str = reporting_date.strftime("%Y%m%d")
+            logger.debug(f"Processing date: {reporting_date}, formatted as {date_str}")
 
 
             # Check if data files are provided
@@ -473,7 +473,7 @@ class AgingReportService:
                 new_row['Gross Amount'] = current_gross_amount_num
 
                 # Column 50 (AX): Get Day value for report date - this becomes 'To be Collected'
-                day_num: int = today.day
+                day_num: int = reporting_date.day
                 day_key: str = f"Day{day_num}"
                 numeric_to_be_collected: float = 0.0
                 source_tbc_val: Union[float, int, None] = row_dict.get(day_key, None)
@@ -536,7 +536,7 @@ class AgingReportService:
                     if new_row['Payable to Vendor'] == row_dict.get('Gross_Tot'):
                         cheque_date_val = row_dict.get('Cheque_Date')
                         if isinstance(cheque_date_val, datetime):
-                            days_diff: int = (today.date() - cheque_date_val.date()).days
+                            days_diff: int = (reporting_date.date() - cheque_date_val.date()).days
                             new_row['Days Late for Vendors Pmt'] = days_diff if days_diff > 0 else ''
                             logger.debug(f"Days Late for Vendors Pmt set to {new_row['Days Late for Vendors Pmt']} for Sale_No {row_dict.get('Sale_No', 'Unknown')}")
                         else:
@@ -637,7 +637,7 @@ class AgingReportService:
                         report_wb.remove(report_wb.active)
 
                     # Calculate yesterday for conditional formatting context
-                    yesterday = today.date() - timedelta(days=1)
+                    yesterday = reporting_date.date() - timedelta(days=1)
                     context = {'yesterday': yesterday}
 
                     # Create FULLY PAID sheet - rows where 'To be Collected' is 0.0

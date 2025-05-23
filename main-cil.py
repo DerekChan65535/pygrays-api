@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 
 from containers import RootContainer
 from models.file_model import FileModel
@@ -15,11 +16,11 @@ async def main():
         mapping_file = FileModel("mapping.csv", f.read())
 
     sales_data_files_info = [
-        {"name": "Sales Aged Balance NSW.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance NSW.csv"},
-        {"name": "Sales Aged Balance QLD.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance QLD.csv"},
-        {"name": "Sales Aged Balance SA.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance SA.csv"},
-        {"name": "Sales Aged Balance VIC.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance VIC.csv"},
-        {"name": "Sales Aged Balance WA.csv", "path": r"Z:\Ariel\aging_data_2\Sales Aged Balance WA.csv"},
+        {"name": "Sales Aged Balance NSW.csv", "path": r"Z:\Ariel\aging_data_2\23052025\Sales Aged Balance - nsw.csv"},
+        {"name": "Sales Aged Balance QLD.csv", "path": r"Z:\Ariel\aging_data_2\23052025\Sales Aged Balance - qld.csv"},
+        {"name": "Sales Aged Balance SA.csv", "path": r"Z:\Ariel\aging_data_2\23052025\Sales Aged Balance - sa.csv"},
+        {"name": "Sales Aged Balance VIC.csv", "path": r"Z:\Ariel\aging_data_2\23052025\Sales Aged Balance - vic.csv"},
+        {"name": "Sales Aged Balance WA.csv", "path": r"Z:\Ariel\aging_data_2\23052025\Sales Aged Balance - wa.csv"},
     ]
 
     raw_sales_data_list = []
@@ -27,12 +28,15 @@ async def main():
         with open(file_info["path"], "rb") as f:
             raw_sales_data_list.append(FileModel(file_info["name"], f.read()))
 
-    response = await aging_service.process_uploaded_file(mapping_file, raw_sales_data_list)
+    # Set the report date (defaulting to today)
+    report_date = datetime.today()
+    
+    response = await aging_service.process_uploaded_file(mapping_file, raw_sales_data_list, report_date)
 
     # You can do something with the response here, e.g., print(response)
     if response.is_success and response.data:
         output_filename = response.data.name
-        output_path = fr"Z:\Ariel\aging_data_2\{output_filename}"  # Use raw string for Windows path
+        output_path = fr"Z:\Ariel\aging_data_2\23052025\{output_filename}"  # Use raw string for Windows path
         try:
             with open(output_path, "wb") as f:
                 f.write(response.data.content)

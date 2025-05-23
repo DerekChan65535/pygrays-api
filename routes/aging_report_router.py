@@ -31,7 +31,7 @@ def get_aging_report_service():
 async def process_aging_report(
     mapping_file: UploadFile = File(...),
     data_files: List[UploadFile] = File(...),
-    report_date: Optional[str] = Form(None),
+    report_date: str = Form(...),
     service: AgingReportService = Depends(get_aging_report_service)
 ):
     """
@@ -40,7 +40,7 @@ async def process_aging_report(
     Args:
         mapping_file: CSV file containing mapping tables
         data_files: List of CSV files containing daily sales data with state info in filenames
-        report_date: Optional specific date to use for report calculations (format: YYYY-MM-DD)
+        report_date: Specific date to use for report calculations (format: YYYY-MM-DD)
         service: AgingReportService instance
         
     Returns:
@@ -59,14 +59,11 @@ async def process_aging_report(
             content=await mapping_file.read()
         )
 
-        # Parse report date if provided
-        parsed_date = None
-        if report_date:
-            try:
-                parsed_date = datetime.strptime(report_date, "%Y-%m-%d")
-                logger.info(f"Using specified report date: {parsed_date}")
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid report_date format. Expected YYYY-MM-DD")
+        try:
+            parsed_date = datetime.strptime(report_date, "%Y-%m-%d")
+            logger.info(f"Using specified report date: {parsed_date}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid report_date format. Expected YYYY-MM-DD")
         
         data_file_models = []
         for file in data_files:
