@@ -3,6 +3,7 @@ import io
 import logging
 import re
 from typing import List, Tuple, Dict, Optional
+from datetime import datetime
 
 from openpyxl import Workbook
 from models.response_base import ResponseBase
@@ -135,6 +136,59 @@ class InventoryService:
                     return consensus_month, consensus_year, False
     
         return consensus_month, consensus_year, True
+
+    @staticmethod
+    def _extract_date_from_soh_filename(filename: str) -> Optional[datetime]:
+        """
+        Extract date from SOH filename ending with DDMMYY pattern.
+        
+        Args:
+            filename: Filename (with or without extension)
+            
+        Returns:
+            datetime object if valid date found, None otherwise
+        """
+        # Remove extension if present
+        name_without_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        
+        # Check if filename ends with 6 digits (DDMMYY)
+        if len(name_without_ext) < 6 or not name_without_ext[-6:].isdigit():
+            return None
+            
+        date_str = name_without_ext[-6:]
+        
+        try:
+            # Parse DDMMYY format
+            day = int(date_str[0:2])
+            month = int(date_str[2:4])
+            year = int(date_str[4:6])
+            
+            # Convert 2-digit year to 4-digit year
+            # Assume years 00-30 are 2000-2030, years 31-99 are 1931-1999
+            if year <= 30:
+                year += 2000
+            else:
+                year += 1900
+                
+            # Validate and create datetime
+            parsed_date = datetime(year, month, day)
+            return parsed_date
+            
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _validate_soh_filename(filename: str) -> bool:
+        """
+        Validate that filename ends with DDMMYY pattern and has valid date.
+        
+        Args:
+            filename: Filename to validate
+            
+        Returns:
+            True if filename is valid SOH file, False otherwise
+        """
+        return InventoryService._extract_date_from_soh_filename(filename) is not None
         
     def _get_mixed_deals(self, data_dicts: List[Dict]) -> List[Dict]:
         """
@@ -150,23 +204,61 @@ class InventoryService:
         logger.info(f"Found {len(mixed_deals)} rows with MIXED DealNo")
         return mixed_deals
         
-    def _add_per_unit_cost(self, data_dicts: List[Dict], unit_with_cost: Dict[str, str]) -> List[Dict]:
+    def _add_per_unit_cost(self, data_dicts: List[Dict], soh_files_data: List[Dict], errors: List[str]) -> List[Dict]:
         """
-        Add Per_Unit_Cost field to each item in the data dictionary.
+        Add Per_Unit_Cost field to each item using fallback lookup through SOH files.
         
         Args:
             data_dicts: List of data dictionaries to enrich.
-            unit_with_cost: Mapping of product codes to unit costs.
+            soh_files_data: List of SOH file data sorted by date (newest first).
+            errors: List to collect error messages.
             
         Returns:
             List of dictionaries with Per_Unit_Cost added.
         """
+        items_not_found = []
+        lookup_stats = {}
+        
         for item in data_dicts:
             product_code = item.get("AX_ProductCode", "")
-            per_unit_cost = unit_with_cost.get(product_code, "")
+            per_unit_cost = ""
+            found_in_file = None
+            
+            # Try to find the item in SOH files (newest first)
+            for file_data in soh_files_data:
+                if product_code in file_data['mapping']:
+                    per_unit_cost = file_data['mapping'][product_code]
+                    found_in_file = file_data['filename']
+                    break
+            
+            if found_in_file:
+                # Track which file provided the lookup
+                if found_in_file not in lookup_stats:
+                    lookup_stats[found_in_file] = 0
+                lookup_stats[found_in_file] += 1
+            else:
+                # Item not found in any SOH file
+                items_not_found.append(product_code)
+            
             item["Per_Unit_Cost"] = per_unit_cost
         
+        # Log lookup statistics
         logger.info(f"Added Per_Unit_Cost field to {len(data_dicts)} items")
+        for filename, count in lookup_stats.items():
+            logger.info(f"  {count} items found in {filename}")
+        
+        # Handle items not found in any SOH file
+        if items_not_found:
+            error_msg = f"Items not found in any SOH file: {', '.join(items_not_found[:10])}"
+            if len(items_not_found) > 10:
+                error_msg += f" (and {len(items_not_found) - 10} more)"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            
+            # Log detailed information about missing items
+            logger.error(f"Total items not found: {len(items_not_found)}")
+            logger.error(f"Available SOH files: {[f['filename'] for f in soh_files_data]}")
+        
         return data_dicts
     
     def _calculate_additional_fields(self, data_dicts: List[Dict]) -> List[Dict]:
@@ -434,52 +526,87 @@ class InventoryService:
             logger.error(f'Error processing file {file.name}', exc_info=True)
             return []
 
-    def _load_uom_mapping_from_csv(self, csv_file: FileModel, errors: List[str]) -> Optional[Dict[str, str]]:
+    def _load_multiple_soh_files(self, csv_files: List[FileModel], errors: List[str]) -> Optional[List[Dict[str, str]]]:
         """
-        Load Item Number to UOM mapping from a CSV file.
-    
+        Load and sort multiple SOH files by date (newest first).
+        
         Args:
-            csv_file: The CSV file containing item number and UOM mappings.
+            csv_files: List of CSV files containing SOH data.
             errors: List to collect error messages.
-    
+            
         Returns:
-            Dictionary mapping item numbers to UOMs, or None if validation fails.
+            List of dictionaries (one per file) sorted by date (newest first), or None if validation fails.
         """
-        logger.info("Loading UOM mapping from CSV")
-    
-        rows = self._load_csv_data(csv_file, self.uom_mapping_import_schema, errors)
-        if len(errors) > 0:
-            logger.error(f"Errors loading UOM mapping from {csv_file.name}: {errors}")
+        logger.info(f"Loading {len(csv_files)} SOH files")
+        
+        # Validate all filenames first
+        invalid_files = []
+        for csv_file in csv_files:
+            if not self._validate_soh_filename(csv_file.name):
+                invalid_files.append(csv_file.name)
+        
+        if invalid_files:
+            error_msg = f"Invalid SOH filename(s) - must end with DDMMYY pattern: {', '.join(invalid_files)}"
+            logger.error(error_msg)
+            errors.append(error_msg)
             return None
-    
-        # Build the mapping and check for conflicts
-        item_uom_map = {}
-        conflicting_items = {}
-    
-        for row in rows:
-            item_number = row["Item"]
-            uom = row["UOM"]
-            if item_number in item_uom_map:
-                if item_uom_map[item_number] != uom:
-                    if item_number not in conflicting_items:
-                        conflicting_items[item_number] = [item_uom_map[item_number]]
-                    conflicting_items[item_number].append(uom)
-            else:
-                item_uom_map[item_number] = uom
-    
-        if len(conflicting_items) > 0:
-            conflict_errors = [f"Item {item} has conflicting UOM values: {', '.join(map(str, uoms))}"
-                              for item, uoms in conflicting_items.items()]
-            error_message = "CSV contains duplicate item numbers with different UOM values"
-            logger.error(error_message)
-            for err in conflict_errors:
-                logger.error(err)
-            errors.append(error_message)
-            errors.extend(conflict_errors)
-            return None
-
-        logger.info(f"Validated {len(item_uom_map)} item number to UOM mappings")
-        return item_uom_map
+        
+        # Load and parse each file
+        soh_files_data = []
+        for csv_file in csv_files:
+            logger.info(f"Loading SOH file: {csv_file.name}")
+            
+            # Load CSV data
+            rows = self._load_csv_data(csv_file, self.uom_mapping_import_schema, errors)
+            if errors:
+                logger.error(f"Errors loading SOH file {csv_file.name}: {errors}")
+                return None
+            
+            # Build item mapping for this file
+            item_uom_map = {}
+            conflicting_items = {}
+            
+            for row in rows:
+                item_number = row["Item"]
+                uom = row["UOM"]
+                if item_number in item_uom_map:
+                    if item_uom_map[item_number] != uom:
+                        if item_number not in conflicting_items:
+                            conflicting_items[item_number] = [item_uom_map[item_number]]
+                        conflicting_items[item_number].append(uom)
+                else:
+                    item_uom_map[item_number] = uom
+            
+            # Check for conflicts within this file
+            if conflicting_items:
+                conflict_errors = [f"Item {item} has conflicting UOM values in {csv_file.name}: {', '.join(map(str, uoms))}"
+                                 for item, uoms in conflicting_items.items()]
+                error_message = f"SOH file {csv_file.name} contains duplicate item numbers with different UOM values"
+                logger.error(error_message)
+                for err in conflict_errors:
+                    logger.error(err)
+                errors.append(error_message)
+                errors.extend(conflict_errors)
+                return None
+            
+            # Extract date and store file data
+            file_date = self._extract_date_from_soh_filename(csv_file.name)
+            soh_files_data.append({
+                'filename': csv_file.name,
+                'date': file_date,
+                'mapping': item_uom_map
+            })
+            
+            logger.info(f"Loaded {len(item_uom_map)} items from {csv_file.name} (date: {file_date.strftime('%Y-%m-%d')})")
+        
+        # Sort by date (newest first)
+        soh_files_data.sort(key=lambda x: x['date'], reverse=True)
+        
+        logger.info(f"Sorted {len(soh_files_data)} SOH files by date (newest first)")
+        for file_data in soh_files_data:
+            logger.info(f"  {file_data['filename']} - {file_data['date'].strftime('%Y-%m-%d')}")
+        
+        return soh_files_data
 
     def _process_deals_files(self, txt_files: List[FileModel], errors: List[str]) -> Tuple[Optional[List[Dict]], Optional[int], Optional[int]]:
         """
@@ -579,13 +706,13 @@ class InventoryService:
             return month_names[month - 1]
         return "Unknown"
     
-    def process_inventory_request(self, txt_files: List[FileModel], csv_file: FileModel) -> ResponseBase:
+    def process_inventory_request(self, txt_files: List[FileModel], csv_files: List[FileModel]) -> ResponseBase:
         """
         Process inventory request by handling input files, generating data, and creating an Excel file.
         
         Args:
             txt_files: List of text files containing dropship sales and deals data.
-            csv_file: CSV file containing UOM mapping data.
+            csv_files: List of CSV files containing SOH data (must end with DDMMYY pattern).
             
         Returns:
             Response object with success status, Excel file, and any errors.
@@ -599,8 +726,16 @@ class InventoryService:
         # =====================================================================
         logger.info("Stage 1: Processing and validating input files")
         
-        # Load and validate UOM mapping from CSV
-        unit_with_cost = self._load_uom_mapping_from_csv(csv_file, errors)
+        # Validate that we have at least one SOH file
+        if not csv_files:
+            error_msg = "At least one SOH file (CSV) is required"
+            errors.append(error_msg)
+            logger.error(error_msg)
+            self._handle_errors(errors, response)
+            return response
+        
+        # Load and validate multiple SOH files
+        soh_files_data = self._load_multiple_soh_files(csv_files, errors)
         if self._handle_errors(errors, response):
             return response
         
@@ -642,11 +777,16 @@ class InventoryService:
         # Extract mixed deals for separate processing
         mixed_deals = self._get_mixed_deals(dropship_sales_data or [])
     
-        # Add Per_Unit_Cost to all data sets
+        # Add Per_Unit_Cost to all data sets using fallback lookup
         if mixed_deals:
-            self._add_per_unit_cost(mixed_deals, unit_with_cost or {})
+            self._add_per_unit_cost(mixed_deals, soh_files_data, errors)
+            if self._handle_errors(errors, response):
+                return response
+                
         if deals_data:
-            self._add_per_unit_cost(deals_data, unit_with_cost or {})
+            self._add_per_unit_cost(deals_data, soh_files_data, errors)
+            if self._handle_errors(errors, response):
+                return response
             
         # Calculate additional fields (COGS, SALE_EX_GST, BP_EX_GST)
         if mixed_deals:

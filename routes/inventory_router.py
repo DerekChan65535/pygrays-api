@@ -21,7 +21,7 @@ inventory_router = APIRouter(
 @inject
 async def create_upload_files(
         txt_files: Annotated[list[UploadFile], File(description="Text files as UploadFile")],
-        csv_files: Annotated[list[UploadFile], File(description="CSV files as UploadFile")],
+        csv_files: Annotated[list[UploadFile], File(description="SOH CSV files as UploadFile")],
         service: Annotated[InventoryService, Depends(Provide[RootContainer.inventory_service])]
 ):
     if not txt_files or len(txt_files) == 0:
@@ -30,10 +30,10 @@ async def create_upload_files(
             content="No txt files uploaded"
         )
 
-    if not csv_files or len(csv_files) != 1:
+    if not csv_files or len(csv_files) == 0:
         return fastapi.responses.Response(
             status_code=400,
-            content="No csv files uploaded"
+            content="No SOH CSV files uploaded"
         )
 
     if any(not x.filename for x in txt_files):
@@ -41,17 +41,33 @@ async def create_upload_files(
             status_code=400,
             content="One or more txt files have no filename"
         )
-    if not csv_files[0].filename:
+    
+    # Validate CSV filenames
+    invalid_csv_files = []
+    for csv_file in csv_files:
+        if not csv_file.filename:
+            return fastapi.responses.Response(
+                status_code=400,
+                content="One or more CSV files have no filename"
+            )
+        
+        # Check if filename ends with DDMMYY pattern
+        filename = csv_file.filename
+        name_without_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        if len(name_without_ext) < 6 or not name_without_ext[-6:].isdigit():
+            invalid_csv_files.append(filename)
+    
+    if invalid_csv_files:
         return fastapi.responses.Response(
             status_code=400,
-            content="CSV file has no filename"
+            content=f"Invalid SOH filename(s) - must end with DDMMYY pattern: {', '.join(invalid_csv_files)}"
         )
 
     txt_file_name_content = [FileModel(x.filename, await x.read()) for x in txt_files]
-    csv_uom_file = FileModel(csv_files[0].filename, await csv_files[0].read())
+    csv_file_name_content = [FileModel(x.filename, await x.read()) for x in csv_files]
 
     try:
-        response = service.process_inventory_request(txt_file_name_content, csv_uom_file)
+        response = service.process_inventory_request(txt_file_name_content, csv_file_name_content)
     except Exception as e:
         tb_exc = traceback.TracebackException.from_exception(e)
         content = {

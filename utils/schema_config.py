@@ -231,7 +231,7 @@ aging_report_daily_data_import_schema = ImportSchema({
 # Base field definitions for aging report exports
 aging_report_base_fields = {
     'Classification': ExportField('string'),
-    'Sale_No': ExportField('string'),
+    'Sale_No': ExportField('integer'),
     'Description': ExportField('string'),
     'Division': ExportField('string'),
     'BDM': ExportField('string'),
