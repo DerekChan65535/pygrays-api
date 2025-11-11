@@ -66,7 +66,7 @@ class PaymentExtractService:
         logger.info(f"Validating Excel file: {excel_file.name}")
         
         # Use shared utility to load Excel file (supports both XLS and XLSX)
-        wb = ExcelUtilities.load_excel_workbook(excel_file, errors=errors, read_only=False, data_only=True)
+        wb = ExcelUtilities.load_excel_workbook(excel_file, errors=errors, read_only=False, data_only=True)  # type: ignore[attr-defined]
         
         if wb is None:
             return None
@@ -361,17 +361,27 @@ class PaymentExtractService:
             original_filename = os.path.splitext(excel_file.name)[0]  # Remove extension
             
             for entity_value in unique_entities:
-                excel_content = self._create_excel_file_for_entity(
+                # Create XLSX file first
+                xlsx_content = self._create_excel_file_for_entity(
                     data_rows, 
                     entity_value, 
                     self.REQUIRED_COLUMN_NAME,
                     headers
                 )
                 
-                # Generate filename
-                excel_filename = f"{original_filename}-BusinessEntity-{entity_value}.xlsx"
-                excel_files[excel_filename] = excel_content
-                logger.info(f"Created Excel file: {excel_filename}")
+                # Convert XLSX to XLS
+                xls_content = ExcelUtilities.convert_xlsx_to_xls(xlsx_content, f"{original_filename}-BusinessEntity-{entity_value}.xlsx", errors)  # type: ignore[attr-defined]
+                if xls_content is None:
+                    error_msg = f"Failed to convert XLSX to XLS for BusinessEntity '{entity_value}'"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    self._handle_errors(errors, response)
+                    return response
+                
+                # Generate filename with .xls extension
+                excel_filename = f"{original_filename}-BusinessEntity-{entity_value}.xls"
+                excel_files[excel_filename] = xls_content
+                logger.info(f"Created and converted Excel file to XLS: {excel_filename}")
             
             # Step 8: Create ZIP file
             zip_file = self._create_zip_file(excel_files, original_filename)
