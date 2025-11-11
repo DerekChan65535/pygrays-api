@@ -25,7 +25,8 @@ class PaymentExtractService:
 
     REQUIRED_SHEET_NAME = "Payments Extract"
     REQUIRED_COLUMN_NAME = "BusinessEntity"
-    BLANK_VALUE_REPLACEMENT = "Blank"
+    BLANK_VALUE_REPLACEMENT = "Grays"
+    GRAYS_ENTITY_NAME = "Grays"
 
     def __init__(self):
         pass
@@ -164,18 +165,49 @@ class PaymentExtractService:
         logger.info(f"Read {row_count} data rows from sheet '{sheet.title}'")
         return data_rows
 
+    def _normalize_business_entity(self, business_entity_value: str) -> str:
+        """
+        Normalizes BusinessEntity values for grouping.
+        - Blank/empty values → "Grays"
+        - "Grays" entity → "Grays"
+        - Other entities → kept as is
+        
+        Args:
+            business_entity_value: The BusinessEntity value to normalize
+            
+        Returns:
+            Normalized BusinessEntity value
+        """
+        # Convert None to empty string
+        if business_entity_value is None:
+            business_entity_value = ""
+        
+        # Convert to string and strip whitespace
+        business_entity_value = str(business_entity_value).strip()
+        
+        # Replace empty string with "Grays"
+        if business_entity_value == "":
+            return self.BLANK_VALUE_REPLACEMENT
+        
+        # Normalize "Grays" entity (case-insensitive)
+        if business_entity_value.lower() == self.GRAYS_ENTITY_NAME.lower():
+            return self.GRAYS_ENTITY_NAME
+        
+        # Return other entities as-is
+        return business_entity_value
+
     def _get_unique_business_entities(self, data_rows: List[Dict[str, Any]], 
                                       business_entity_col_name: str) -> List[str]:
         """
         Extracts unique BusinessEntity values from the data.
-        Empty strings and None values are treated as "Blank".
+        Blank values and "Grays" entity are grouped together as "Grays".
         
         Args:
             data_rows: List of row dictionaries
             business_entity_col_name: Name of the BusinessEntity column
             
         Returns:
-            List of unique BusinessEntity values (with "Blank" for empty values)
+            List of unique normalized BusinessEntity values
         """
         logger.info(f"Extracting unique BusinessEntity values from {len(data_rows)} rows")
         
@@ -183,22 +215,11 @@ class PaymentExtractService:
         
         for row in data_rows:
             business_entity_value = row.get(business_entity_col_name, "")
-            
-            # Convert None to empty string
-            if business_entity_value is None:
-                business_entity_value = ""
-            
-            # Convert to string and strip whitespace
-            business_entity_value = str(business_entity_value).strip()
-            
-            # Replace empty string with "Blank"
-            if business_entity_value == "":
-                business_entity_value = self.BLANK_VALUE_REPLACEMENT
-            
-            unique_values.add(business_entity_value)
+            normalized_value = self._normalize_business_entity(business_entity_value)
+            unique_values.add(normalized_value)
         
         unique_list = sorted(list(unique_values))
-        logger.info(f"Found {len(unique_list)} unique BusinessEntity values: {unique_list}")
+        logger.info(f"Found {len(unique_list)} unique BusinessEntity groups: {unique_list}")
         
         return unique_list
 
@@ -208,38 +229,30 @@ class PaymentExtractService:
                                       headers: List[str]) -> bytes:
         """
         Creates an Excel file containing only rows for a specific BusinessEntity value.
+        For "Grays" group, includes both blank values and "Grays" entity values.
         
         Args:
             data_rows: All data rows
-            business_entity_value: The BusinessEntity value to filter by
+            business_entity_value: The normalized BusinessEntity value to filter by
             business_entity_col_name: Name of the BusinessEntity column
             headers: List of column headers
             
         Returns:
             Bytes content of the created Excel file
         """
-        logger.info(f"Creating Excel file for BusinessEntity: '{business_entity_value}'")
+        logger.info(f"Creating Excel file for BusinessEntity group: '{business_entity_value}'")
         
-        # Filter rows for this BusinessEntity
+        # Filter rows for this BusinessEntity group
         filtered_rows = []
         for row in data_rows:
             row_entity_value = row.get(business_entity_col_name, "")
+            normalized_row_value = self._normalize_business_entity(row_entity_value)
             
-            # Convert None to empty string
-            if row_entity_value is None:
-                row_entity_value = ""
-            
-            # Convert to string and strip
-            row_entity_value = str(row_entity_value).strip()
-            
-            # Replace empty string with "Blank" for comparison
-            if row_entity_value == "":
-                row_entity_value = self.BLANK_VALUE_REPLACEMENT
-            
-            if row_entity_value == business_entity_value:
+            # Include row if normalized value matches the target group
+            if normalized_row_value == business_entity_value:
                 filtered_rows.append(row)
         
-        logger.info(f"Filtered {len(filtered_rows)} rows for BusinessEntity '{business_entity_value}'")
+        logger.info(f"Filtered {len(filtered_rows)} rows for BusinessEntity group '{business_entity_value}'")
         
         # Create new workbook
         wb = Workbook()
