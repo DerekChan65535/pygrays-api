@@ -6,10 +6,12 @@ from typing import List, Dict, Any, Optional
 
 import openpyxl
 from openpyxl import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 from models.file_model import FileModel
 from models.response_base import ResponseBase
 from services.multi_logging import LoggingService
+from utils.excel_utilities import ExcelUtilities
 
 # Initialize logger
 logger = LoggingService().get_logger(__name__)
@@ -52,6 +54,7 @@ class PaymentExtractService:
     def _validate_excel_file(self, excel_file: FileModel, errors: List[str]) -> Optional[openpyxl.Workbook]:
         """
         Validates the Excel file structure and loads the workbook.
+        Supports both XLS and XLSX formats.
         
         Args:
             excel_file: FileModel containing the Excel file
@@ -62,34 +65,23 @@ class PaymentExtractService:
         """
         logger.info(f"Validating Excel file: {excel_file.name}")
         
-        if not excel_file.content or len(excel_file.content) == 0:
-            error_msg = "Excel file is empty"
+        # Use shared utility to load Excel file (supports both XLS and XLSX)
+        wb = ExcelUtilities.load_excel_workbook(excel_file, errors=errors, read_only=False, data_only=True)
+        
+        if wb is None:
+            return None
+        
+        # Validate required sheet exists
+        if self.REQUIRED_SHEET_NAME not in wb.sheetnames:
+            error_msg = f"Sheet '{self.REQUIRED_SHEET_NAME}' not found in the Excel file"
             logger.error(error_msg)
             errors.append(error_msg)
             return None
+        
+        logger.info(f"Found required sheet '{self.REQUIRED_SHEET_NAME}'")
+        return wb
 
-        try:
-            # Load the workbook
-            wb = openpyxl.load_workbook(io.BytesIO(excel_file.content), read_only=False, data_only=True)
-            logger.info(f"Successfully loaded workbook with {len(wb.sheetnames)} sheets: {wb.sheetnames}")
-            
-            # Validate required sheet exists
-            if self.REQUIRED_SHEET_NAME not in wb.sheetnames:
-                error_msg = f"Sheet '{self.REQUIRED_SHEET_NAME}' not found in the Excel file"
-                logger.error(error_msg)
-                errors.append(error_msg)
-                return None
-            
-            logger.info(f"Found required sheet '{self.REQUIRED_SHEET_NAME}'")
-            return wb
-            
-        except Exception as e:
-            error_msg = f"Invalid Excel file format: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            errors.append(error_msg)
-            return None
-
-    def _validate_sheet_structure(self, sheet: openpyxl.worksheet.worksheet.Worksheet, errors: List[str]) -> Optional[int]:
+    def _validate_sheet_structure(self, sheet: Worksheet, errors: List[str]) -> Optional[int]:
         """
         Validates that the sheet has the required BusinessEntity column.
         
@@ -125,7 +117,7 @@ class PaymentExtractService:
         
         return business_entity_col_idx
 
-    def _read_sheet_data(self, sheet: openpyxl.worksheet.worksheet.Worksheet, 
+    def _read_sheet_data(self, sheet: Worksheet, 
                         business_entity_col_idx: int) -> List[Dict[str, Any]]:
         """
         Reads all data rows from the sheet into a list of dictionaries.
@@ -252,6 +244,8 @@ class PaymentExtractService:
         # Create new workbook
         wb = Workbook()
         ws = wb.active
+        if ws is None:
+            ws = wb.create_sheet()
         ws.title = self.REQUIRED_SHEET_NAME
         
         # Write headers
@@ -393,4 +387,5 @@ class PaymentExtractService:
             errors.append(error_message)
             self._handle_errors(errors, response)
             return response
+
 

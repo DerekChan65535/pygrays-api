@@ -89,3 +89,4 @@ async def process_bank_statement(
             detail=f"An error occurred while processing the bank statement: {str(e)}"
         )
 
+
