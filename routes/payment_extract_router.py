@@ -34,7 +34,7 @@ async def process_payment_extract(
     Process Payment Extract Excel file and return ZIP with split files
     
     Args:
-        excel_file: Excel file (.xlsx) containing Payments Extract sheet
+        excel_file: Excel file (.xls or .xlsx) containing Payments Extract sheet
         service: PaymentExtractService instance
         
     Returns:
@@ -46,9 +46,10 @@ async def process_payment_extract(
         if not excel_file.filename:
             raise HTTPException(status_code=400, detail="Excel file is required")
         
-        # Validate file extension
-        if not excel_file.filename.lower().endswith('.xlsx'):
-            raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx)")
+        # Validate file extension - accept both .xls and .xlsx
+        filename_lower = excel_file.filename.lower()
+        if not (filename_lower.endswith('.xlsx') or filename_lower.endswith('.xls')):
+            raise HTTPException(status_code=400, detail="File must be an Excel file (.xls or .xlsx)")
         
         # Convert UploadFile to FileModel
         excel_file_model = FileModel(
